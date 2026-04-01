@@ -1,5 +1,5 @@
 interface ConfidenceBadgeProps {
-  level: "high" | "medium" | "low";
+  level?: "high" | "medium" | "low";
 }
 
 const confidenceConfig: Record<string, { bg: string; text: string; label: string }> = {

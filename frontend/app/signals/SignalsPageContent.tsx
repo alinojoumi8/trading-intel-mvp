@@ -74,22 +74,21 @@ function confidenceBar(conf?: number): string {
 
 // ─── Stage Card ──────────────────────────────────────────────────────────────
 
-function StageCard({ stage, title, color }: { stage?: Record<string, unknown>; title: string; color: string }) {
+function StageCard({ stage, title, color }: { stage?: object; title: string; color: string }) {
   if (!stage) return null;
+  const entries = Object.entries(stage as Record<string, unknown>).filter(
+    ([, val]) => val !== null && val !== undefined && val !== "" && typeof val !== "object"
+  );
   return (
     <div className={`border ${color} rounded-lg p-4`}>
       <p className="text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-2">{title}</p>
       <div className="space-y-1">
-        {Object.entries(stage).map(([key, val]) => {
-          if (val === null || val === undefined || val === "") return null;
-          if (typeof val === "object") return null;
-          return (
-            <div key={key} className="flex justify-between text-xs">
-              <span className="text-zinc-500 capitalize">{key.replace(/_/g, " ")}</span>
-              <span className="text-zinc-300 font-mono">{String(val)}</span>
-            </div>
-          );
-        })}
+        {entries.map(([key, val]) => (
+          <div key={key} className="flex justify-between text-xs">
+            <span className="text-zinc-500 capitalize">{key.replace(/_/g, " ")}</span>
+            <span className="text-zinc-300 font-mono">{String(val)}</span>
+          </div>
+        ))}
       </div>
     </div>
   );

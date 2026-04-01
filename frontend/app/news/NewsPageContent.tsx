@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   getNews,
   getNewsCategories,
@@ -10,24 +10,13 @@ import {
   NewsItem,
 } from "@/lib/api";
 
-const TIME_THRESHOLDS = [
-  { label: "Just now", seconds: 60 },
-  { label: "m ago", seconds: 3600 },
-  { label: "h ago", seconds: 86400 },
-  { label: "d ago", seconds: Infinity },
-];
-
 function timeAgo(dateStr?: string): string {
   if (!dateStr) return "Unknown";
   const diff = (Date.now() - new Date(dateStr).getTime()) / 1000;
-  for (const t of TIME_THRESHOLDS) {
-    if (diff < t.seconds) {
-      if (t.label === "Just now") return t.label;
-      const val = Math.floor(diff / (t.seconds / 3600));
-      return `${val}${t.label}`;
-    }
-  }
-  return "Unknown";
+  if (diff < 60) return "Just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 }
 
 function categoryColor(cat: string): string {
@@ -55,8 +44,8 @@ export default function NewsPageContent() {
   const [fetching, setFetching] = useState(false);
   const [fetchResult, setFetchResult] = useState<{ sources_updated: number; new_items: number; errors: number } | null>(null);
   const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
   const LIMIT = 30;
+  const offsetRef = React.useRef(0);
 
   const loadCategories = useCallback(async () => {
     try {
@@ -70,7 +59,7 @@ export default function NewsPageContent() {
   const loadNews = useCallback(async (resetOffset = false) => {
     setLoading(true);
     try {
-      const newOffset = resetOffset ? 0 : offset;
+      const newOffset = resetOffset ? 0 : offsetRef.current;
       const filters: Parameters<typeof getNews>[0] = {
         limit: LIMIT,
         offset: newOffset,
@@ -86,22 +75,22 @@ export default function NewsPageContent() {
         setItems(prev => [...prev, ...data.items]);
       }
       setTotal(data.total);
-      setOffset(newOffset + data.items.length);
+      offsetRef.current = newOffset + data.items.length;
     } catch (err) {
       console.error("Failed to load news:", err);
     } finally {
       setLoading(false);
     }
-  }, [selectedCategory, filter, offset]);
+  }, [selectedCategory, filter]);
 
   useEffect(() => {
     loadCategories();
   }, [loadCategories]);
 
   useEffect(() => {
-    setOffset(0);
+    offsetRef.current = 0;
     loadNews(true);
-  }, [selectedCategory, filter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loadNews]);
 
   const handleRefresh = async () => {
     setFetching(true);

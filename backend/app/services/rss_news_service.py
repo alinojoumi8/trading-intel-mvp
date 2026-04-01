@@ -29,14 +29,19 @@ def _parse_rss_date(date_str: str) -> Optional[datetime]:
     if not date_str:
         return None
     try:
-        return parsedate_to_datetime(date_str)
+        dt = parsedate_to_datetime(date_str)
+        # Ensure we return a naive datetime for SQLite compatibility
+        return dt.replace(tzinfo=None) if dt.tzinfo else dt
     except Exception:
+        pass
+    # Fallback: try ISO 8601 format
+    for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
         try:
-            # Fallback: try common RSS date formats manually
-            from email.parser import Parser
-            return Parser().parsestr("Date: " + date_str).get("date")
-        except Exception:
-            return None
+            dt = datetime.strptime(date_str.strip(), fmt)
+            return dt.replace(tzinfo=None) if dt.tzinfo else dt
+        except ValueError:
+            continue
+    return None
 
 
 def _strip_html(text: str) -> str:
@@ -161,14 +166,18 @@ async def fetch_all_sources(
                 ).scalar_one_or_none()
 
                 if existing is None:
+                    pub_at = item_data.get("published_at")
+                    # Ensure published_at is a proper datetime or None
+                    if pub_at and not isinstance(pub_at, datetime):
+                        pub_at = None
                     news_item = NewsItem(
                         source_id=source.id,
                         title=item_data["title"],
                         description=item_data.get("description"),
                         url=item_data["url"],
-                        published_at=item_data.get("published_at"),
+                        published_at=pub_at,
                         fetched_at=datetime.utcnow(),
-                        tags=source.category.lower(),  # tag with source category
+                        tags=source.category.lower(),
                     )
                     db.add(news_item)
                     stored += 1

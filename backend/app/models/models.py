@@ -6,6 +6,19 @@ import enum
 from app.core.database import Base
 
 
+class User(Base):
+    """User accounts for authentication and subscription management."""
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    name = Column(String(100), nullable=True)
+    subscription_tier = Column(String(20), default="free", nullable=False)  # free | pro
+    stripe_customer_id = Column(String(100), nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ContentType(str, enum.Enum):
     BRIEFING = "briefing"
     SETUP = "setup"
@@ -212,7 +225,11 @@ class COTSnapshot(Base):
     id = Column(Integer, primary_key=True, index=True)
     report_date = Column(DateTime, nullable=False, index=True)
     instrument = Column(String(20), nullable=False, index=True)  # GOLD, EUR, GBP, JPY, OIL
+    commercial_long = Column(Integer, default=0)
+    commercial_short = Column(Integer, default=0)
     commercial_net = Column(Integer, default=0)
+    noncommercial_long = Column(Integer, default=0)
+    noncommercial_short = Column(Integer, default=0)
     noncommercial_net = Column(Integer, default=0)
     open_interest = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)

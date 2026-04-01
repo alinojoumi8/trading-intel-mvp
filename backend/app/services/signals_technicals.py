@@ -294,8 +294,10 @@ def normalise_ticker(asset: str) -> str:
         return forex_pairs[upper]
 
     # Crypto (uses -USD format)
-    if upper in ("BTCUSD", "XBTUSD"):
+    if upper in ("BTCUSD", "XBTUSD", "BTC"):
         return "BTC-USD"
+    if upper == "ETH":
+        return "ETH-USD"
     if upper.endswith("USD") and len(upper) <= 8:
         base = upper[:-3]
         return f"{base}-USD"

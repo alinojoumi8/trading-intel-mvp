@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import Base, engine
-from app.routers import content, instruments, tags, pipeline, news, signals, trade_outcomes, cot_history, regime, multi_timeframe, alerts, correlation, economic_calendar
+from app.routers import content, instruments, tags, pipeline, news, signals, trade_outcomes, cot_history, regime, multi_timeframe, alerts, correlation, economic_calendar, auth, billing
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -38,6 +38,8 @@ app.include_router(multi_timeframe.router)
 app.include_router(alerts.router)
 app.include_router(correlation.router)
 app.include_router(economic_calendar.router)
+app.include_router(auth.router, prefix="/api")
+app.include_router(billing.router, prefix="/api")
 
 
 @app.get("/")

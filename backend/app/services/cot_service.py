@@ -165,10 +165,32 @@ def _parse_cot_csv(csv_content: str, instrument_code: str) -> Optional[Dict[str,
         return None
 
 
+def _parse_socrata_row(row: Dict[str, Any], instrument: str) -> Dict[str, Any]:
+    """Parse a single Socrata API row into our standard format."""
+    report_date = (row.get("report_date_as_yyyy_mm_dd") or "")[:10]
+    comm_long = int(row.get("comm_positions_long_all") or 0)
+    comm_short = int(row.get("comm_positions_short_all") or 0)
+    noncomm_long = int(row.get("noncomm_positions_long_all") or 0)
+    noncomm_short = int(row.get("noncomm_positions_short_all") or 0)
+    open_interest = int(row.get("open_interest_all") or 0)
+
+    return {
+        "instrument": instrument.upper(),
+        "report_date": report_date,
+        "commercial_long": comm_long,
+        "commercial_short": comm_short,
+        "commercial_net": comm_long - comm_short,
+        "noncommercial_long": noncomm_long,
+        "noncommercial_short": noncomm_short,
+        "noncommercial_net": noncomm_long - noncomm_short,
+        "open_interest": open_interest,
+        "market": row.get("market_and_exchange_names"),
+    }
+
+
 async def _fetch_cot_for_instrument_async(instrument: str) -> Dict[str, Any]:
     """
-    Fetch COT data for a single instrument from the CFTC Socrata Open Data API.
-    Falls back to legacy CSV URLs if the Socrata API is unavailable.
+    Fetch the latest COT data for a single instrument from the CFTC Socrata API.
     """
     normalized = instrument.upper()
     cftc_code = INSTRUMENT_MAPPING.get(normalized)
@@ -178,43 +200,20 @@ async def _fetch_cot_for_instrument_async(instrument: str) -> Dict[str, Any]:
             "instrument": instrument,
             "error": f"Unknown instrument: {instrument}",
             "report_date": None,
-            "commercial_long": 0,
-            "commercial_short": 0,
             "commercial_net": 0,
-            "noncommercial_long": 0,
-            "noncommercial_short": 0,
             "noncommercial_net": 0,
         }
 
-    # Try Socrata API first (new 2025/2026 format)
     try:
         params = {
             "$limit": 1,
             "$order": "report_date_as_yyyy_mm_dd DESC",
             "cftc_contract_market_code": cftc_code,
+            "$where": "futonly_or_combined = 'FutOnly'",
         }
         response = await asyncio.to_thread(_socrata_get, COT_SOCRATA_ENDPOINT, params)
         if response:
-            row = response[0]
-            report_date = (row.get("report_date_as_yyyy_mm_dd") or "")[:10]
-            comm_long = int(row.get("comm_positions_long_all") or 0)
-            comm_short = int(row.get("comm_positions_short_all") or 0)
-            noncomm_long = int(row.get("noncomm_positions_long_all") or 0)
-            noncomm_short = int(row.get("noncomm_positions_short_all") or 0)
-            open_interest = int(row.get("open_interest_all") or 0)
-
-            return {
-                "instrument": normalized,
-                "report_date": report_date,
-                "commercial_long": comm_long,
-                "commercial_short": comm_short,
-                "commercial_net": comm_long - comm_short,
-                "noncommercial_long": noncomm_long,
-                "noncommercial_short": noncomm_short,
-                "noncommercial_net": noncomm_long - noncomm_short,
-                "open_interest": open_interest,
-                "market": row.get("market_and_exchange_names"),
-            }
+            return _parse_socrata_row(response[0], normalized)
     except Exception as e:
         logger.warning(f"Socrata API failed for {instrument}: {e}")
 
@@ -222,13 +221,57 @@ async def _fetch_cot_for_instrument_async(instrument: str) -> Dict[str, Any]:
         "instrument": normalized,
         "error": "Could not fetch COT data",
         "report_date": None,
-        "commercial_long": 0,
-        "commercial_short": 0,
         "commercial_net": 0,
-        "noncommercial_long": 0,
-        "noncommercial_short": 0,
         "noncommercial_net": 0,
     }
+
+
+async def fetch_cot_history_async(
+    instrument: str,
+    since_date: Optional[str] = None,
+    limit: int = 500,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch multiple weeks of COT data for an instrument from the CFTC Socrata API.
+
+    Args:
+        instrument: e.g. "GOLD", "EUR"
+        since_date: Only fetch reports after this date (YYYY-MM-DD). None = fetch all.
+        limit: Max rows to return (default 500 ≈ ~10 years of weekly data).
+
+    Returns:
+        List of parsed COT data dicts sorted oldest-first, one per weekly report.
+    """
+    normalized = instrument.upper()
+    cftc_code = INSTRUMENT_MAPPING.get(normalized)
+
+    if not cftc_code:
+        logger.warning(f"Unknown instrument for COT history: {instrument}")
+        return []
+
+    try:
+        # Filter to FutOnly to avoid duplicate Futures+Options rows
+        where_clauses = ["futonly_or_combined = 'FutOnly'"]
+        if since_date:
+            where_clauses.append(f"report_date_as_yyyy_mm_dd > '{since_date}T00:00:00.000'")
+
+        params: Dict[str, Any] = {
+            "$limit": limit,
+            "$order": "report_date_as_yyyy_mm_dd DESC",
+            "cftc_contract_market_code": cftc_code,
+            "$where": " AND ".join(where_clauses),
+        }
+
+        response = await asyncio.to_thread(_socrata_get, COT_SOCRATA_ENDPOINT, params)
+        if response:
+            # Parse and return in chronological order (oldest first)
+            rows = [_parse_socrata_row(row, normalized) for row in response]
+            rows.reverse()
+            return rows
+    except Exception as e:
+        logger.warning(f"Socrata history fetch failed for {instrument}: {e}")
+
+    return []
 
 
 def _socrata_get(url: str, params: dict) -> Optional[List[Dict[str, Any]]]:
@@ -237,7 +280,7 @@ def _socrata_get(url: str, params: dict) -> Optional[List[Dict[str, Any]]]:
     Returns a list (the JSON array from Socrata) or None on error.
     """
     try:
-        with httpx.Client(timeout=20.0) as client:
+        with httpx.Client(timeout=45.0) as client:
             response = client.get(url, params=params)
             response.raise_for_status()
             data = response.json()

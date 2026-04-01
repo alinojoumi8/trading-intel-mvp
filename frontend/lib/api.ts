@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export interface Tag {
   id: number;
@@ -81,6 +81,7 @@ export interface ContentFilters {
 async function fetchAPI<T>(endpoint: string): Promise<T> {
   const res = await fetch(`${API_BASE}${endpoint}`, {
     cache: "no-store",
+    redirect: "follow",
   });
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
@@ -450,7 +451,11 @@ export interface COTSnapshot {
   id: number;
   report_date: string;
   instrument: string;
+  commercial_long: number;
+  commercial_short: number;
   commercial_net: number;
+  noncommercial_long: number;
+  noncommercial_short: number;
   noncommercial_net: number;
   open_interest: number;
   created_at: string;
@@ -466,7 +471,11 @@ export interface COTListResponse {
 export interface COTLatestItem {
   instrument: string;
   report_date: string | null;
+  commercial_long: number;
+  commercial_short: number;
   commercial_net: number;
+  noncommercial_long: number;
+  noncommercial_short: number;
   noncommercial_net: number;
   open_interest: number;
 }

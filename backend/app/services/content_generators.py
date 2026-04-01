@@ -101,6 +101,57 @@ def _extract_rr_ratio(text: str) -> Optional[float]:
     return None
 
 
+def _extract_price_from_field(field_value: str) -> Optional[float]:
+    """Extract a numeric price from a setup field like '1.0850-1.0860' or '95000 (below support)'."""
+    if not field_value:
+        return None
+    # Find the first number (possibly with decimals and commas)
+    match = re.search(r"[\d,]+\.?\d*", field_value.replace(",", ""))
+    if match:
+        try:
+            return float(match.group(0))
+        except ValueError:
+            pass
+    return None
+
+
+def _validate_setup_prices(parsed: dict, current_price: Optional[float], instrument: str) -> Optional[str]:
+    """
+    Validate that LLM-generated price levels are reasonable relative to current price.
+    Returns an error message if invalid, None if OK.
+    """
+    if not current_price or current_price <= 0:
+        return None  # Can't validate without a reference price
+
+    entry_price = _extract_price_from_field(parsed.get("entry_zone", ""))
+    sl_price = _extract_price_from_field(parsed.get("sl", ""))
+    tp_price = _extract_price_from_field(parsed.get("tp", ""))
+
+    # Check each generated price is within 20% of current price
+    max_deviation = 0.20
+    for label, price in [("entry", entry_price), ("stop_loss", sl_price), ("take_profit", tp_price)]:
+        if price is not None and price > 0:
+            deviation = abs(price - current_price) / current_price
+            if deviation > max_deviation:
+                return (
+                    f"{label} price {price} is {deviation:.0%} away from current price "
+                    f"{current_price} for {instrument} — likely hallucinated"
+                )
+
+    # Check price magnitude (order of magnitude must match)
+    if entry_price and entry_price > 0:
+        import math
+        price_magnitude = math.floor(math.log10(current_price)) if current_price > 0 else 0
+        entry_magnitude = math.floor(math.log10(entry_price)) if entry_price > 0 else 0
+        if abs(price_magnitude - entry_magnitude) > 1:
+            return (
+                f"Entry price {entry_price} is wrong order of magnitude for {instrument} "
+                f"(current price ~{current_price})"
+            )
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Generator 1: Morning Briefing
 # ---------------------------------------------------------------------------
@@ -282,7 +333,19 @@ def _build_setup_prompt(market_context: dict, instrument: str) -> str:
     else:
         data = {}
 
-    price_info = f"Price: {data.get('price', data.get('current_price', 'N/A'))}"
+    # Determine current price from technicals (most reliable) or market data
+    tech = market_context.get("technicals")
+    current_price = None
+    if tech and tech.get("current_price"):
+        current_price = tech["current_price"]
+    elif data.get("price"):
+        current_price = data["price"]
+    elif data.get("current_price"):
+        current_price = data["current_price"]
+    elif data.get("last"):
+        current_price = data["last"]
+
+    price_info = f"Price: {current_price if current_price else 'N/A'}"
     change_info = f"Change: {data.get('change_percent', data.get('change', 'N/A'))}%"
 
     # COT for the instrument
@@ -300,9 +363,8 @@ def _build_setup_prompt(market_context: dict, instrument: str) -> str:
 
     # Technical data
     tech_info = ""
-    tech = market_context.get("technicals")
     if tech:
-        price = tech.get("current_price", data.get("price", "N/A"))
+        price = tech.get("current_price", current_price or "N/A")
         trend = tech.get("trend_direction", "N/A")
         rsi = tech.get("rsi_14", "N/A")
         support = tech.get("key_support", "N/A")
@@ -323,6 +385,47 @@ def _build_setup_prompt(market_context: dict, instrument: str) -> str:
   Price vs MA60: {price_vs_60ma}
 """
 
+    # Build asset-appropriate example based on price magnitude
+    if current_price and isinstance(current_price, (int, float)):
+        cp = float(current_price)
+        # Generate realistic example levels near the current price
+        if cp > 1000:
+            # BTC, indices — round to nearest dollar
+            ex_entry_lo = round(cp * 0.99)
+            ex_entry_hi = round(cp * 0.995)
+            ex_sl = round(cp * 0.97)
+            ex_tp = round(cp * 1.04)
+            example_entry = f"{ex_entry_lo}-{ex_entry_hi}"
+            example_sl = f"{ex_sl}"
+            example_tp = f"{ex_tp}"
+        elif cp > 10:
+            # Gold, silver — 2 decimal places
+            ex_entry_lo = round(cp * 0.99, 2)
+            ex_entry_hi = round(cp * 0.995, 2)
+            ex_sl = round(cp * 0.97, 2)
+            ex_tp = round(cp * 1.04, 2)
+            example_entry = f"{ex_entry_lo}-{ex_entry_hi}"
+            example_sl = f"{ex_sl}"
+            example_tp = f"{ex_tp}"
+        else:
+            # Forex — 4-5 decimal places
+            ex_entry_lo = round(cp * 0.999, 5)
+            ex_entry_hi = round(cp * 0.9995, 5)
+            ex_sl = round(cp * 0.996, 5)
+            ex_tp = round(cp * 1.005, 5)
+            example_entry = f"{ex_entry_lo}-{ex_entry_hi}"
+            example_sl = f"{ex_sl}"
+            example_tp = f"{ex_tp}"
+        price_constraint = f"""
+CRITICAL: The current price of {instrument} is approximately {cp}. Your entry_zone, sl, and tp MUST be
+realistic values near this price. For example, entry around {example_entry}, stop loss around {example_sl},
+target around {example_tp}. Do NOT use prices from a different scale or asset."""
+    else:
+        example_entry = "near current price"
+        example_sl = "below/above entry"
+        example_tp = "at target level"
+        price_constraint = ""
+
     prompt = f"""You are TradeIntel AI. Analyze the market context below and generate a high-quality Trade Setup Card.
 
 ## Market Context for {instrument}
@@ -342,6 +445,8 @@ Generate ONE trade setup based on the data above. The setup MUST meet these crit
 - Risk:Reward ratio must be at least 1.5:1 (do NOT generate weak setups)
 - Include specific entry zone, stop-loss, and take-profit levels
 - Direction must be clearly justified by the data
+- ALL price levels (entry, stop loss, take profit) must be realistic for {instrument} at its current price
+{price_constraint}
 
 If the current market context does not offer a clean setup with R:R >= 1.5:1, respond with:
 {{"skip": true, "reason": "<brief explanation>"}}
@@ -351,9 +456,9 @@ Otherwise, return a valid JSON object with this structure:
   "title": "[Instrument] [Direction] Setup — [Timeframe]",
   "instrument": "{instrument}",
   "direction": "long or short",
-  "entry_zone": "e.g., 1.0850-1.0860",
-  "sl": "e.g., 1.0800 (below entry)",
-  "tp": "e.g., 1.0980 (R:R = 2.0:1)",
+  "entry_zone": "e.g., {example_entry}",
+  "sl": "e.g., {example_sl} (below/above entry with reason)",
+  "tp": "e.g., {example_tp} (R:R = 2.0:1)",
   "risk_reward_ratio": 2.0,
   "timeframe": "D1 or H4",
   "confidence": "high or medium",
@@ -416,6 +521,16 @@ async def generate_trade_setup(
     rr = parsed.get("risk_reward_ratio") or _extract_rr_ratio(response)
     if rr is not None and rr < 1.5:
         logger.info(f"Skipping {instrument} setup: R:R={rr} < 1.5")
+        return None
+
+    # Validate price levels against current market price
+    ref_price = None
+    tech = market_context.get("technicals")
+    if tech and tech.get("current_price"):
+        ref_price = float(tech["current_price"])
+    price_error = _validate_setup_prices(parsed, ref_price, instrument)
+    if price_error:
+        logger.warning(f"Price validation failed for {instrument}: {price_error}")
         return None
 
     direction = _normalize_direction(parsed.get("direction", "neutral"))
@@ -736,7 +851,16 @@ def generate_trade_setup_sync(
     instrument: str,
 ) -> Optional[dict]:
     """Sync wrapper for generate_trade_setup."""
-    import json
+    # Fetch live technicals
+    try:
+        from app.services.signals_technicals import calculate_technicals, normalise_ticker
+        ticker = normalise_ticker(instrument)
+        tech_data = calculate_technicals(ticker, period="3mo")
+        if tech_data:
+            market_context = {**market_context, "technicals": tech_data}
+    except Exception as e:
+        logger.warning(f"Could not fetch technicals for {instrument}: {e}")
+
     response = generate_sync(
         prompt=_build_setup_prompt(market_context, instrument),
         system_prompt=TRADE_INTEL_SYSTEM,
@@ -749,6 +873,17 @@ def generate_trade_setup_sync(
     rr = parsed.get("risk_reward_ratio") or _extract_rr_ratio(response)
     if rr is not None and rr < 1.5:
         return None
+
+    # Validate price levels
+    ref_price = None
+    tech = market_context.get("technicals")
+    if tech and tech.get("current_price"):
+        ref_price = float(tech["current_price"])
+    price_error = _validate_setup_prices(parsed, ref_price, instrument)
+    if price_error:
+        logger.warning(f"Price validation failed for {instrument}: {price_error}")
+        return None
+
     direction = _normalize_direction(parsed.get("direction", "neutral"))
     confidence = _normalize_confidence(parsed.get("confidence", "medium"))
     rationale = parsed.get("rationale", "").lower()
