@@ -1,10 +1,11 @@
 """
-NewsAPI Service
-Fetches news articles from NewsAPI.org for forex and market topics.
+NewsAPI.ai Service (Event Registry)
+Fetches news articles from eventregistry.org for forex and market topics.
+Replaces the old NewsAPI.org integration.
 """
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import httpx
 
@@ -12,122 +13,86 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-NEWS_API_BASE_URL = "https://newsapi.org/v2"
+NEWSAPI_AI_BASE_URL = "https://eventregistry.org/api/v1/article/getArticles"
 
 
-def _build_news_params(
-    query: str,
-    from_date: datetime,
-    language: str = "en",
-    sort_by: str = "publishedAt",
-    page_size: int = 20
-) -> Dict[str, str]:
-    """Build query parameters for NewsAPI."""
-    return {
-        "q": query,
-        "from": from_date.isoformat(),
-        "language": language,
-        "sortBy": sort_by,
-        "pageSize": str(page_size),
+async def _fetch_articles(
+    keywords: List[str],
+    days_back: int = 1,
+    count: int = 20,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch articles from NewsAPI.ai (Event Registry).
+    Keywords are combined with OR logic.
+    Returns normalized article dicts.
+    """
+    if not settings.NEWSAPI_KEY:
+        logger.warning("NEWSAPI_KEY not configured")
+        return []
+
+    from_date = (datetime.utcnow() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+
+    payload = {
         "apiKey": settings.NEWSAPI_KEY,
+        "keyword": keywords,
+        "keywordOper": "or",
+        "lang": "eng",
+        "dateStart": from_date,
+        "articlesSortBy": "date",
+        "articlesSortByAsc": False,
+        "articlesCount": count,
+        "resultType": "articles",
     }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(NEWSAPI_AI_BASE_URL, json=payload)
+            response.raise_for_status()
+            data = response.json()
+
+            articles_data = data.get("articles", {}).get("results", [])
+            articles = []
+            for article in articles_data:
+                source_info = article.get("source", {})
+                source_name = source_info.get("title", "") if isinstance(source_info, dict) else str(source_info)
+
+                published = article.get("dateTimePub") or article.get("dateTime") or ""
+
+                articles.append({
+                    "title": article.get("title", ""),
+                    "description": article.get("body", "")[:500] if article.get("body") else "",
+                    "source": source_name,
+                    "url": article.get("url", ""),
+                    "published_at": published,
+                    "author": "",
+                    "sentiment": float(article.get("sentiment", 0) or 0),
+                })
+            return articles
+
+    except Exception as e:
+        logger.error(f"NewsAPI.ai fetch failed for '{keyword}': {e}")
+        return []
 
 
 async def get_forex_news(days_back: int = 1) -> List[Dict[str, Any]]:
-    """
-    Get forex-related news articles.
-    
-    Args:
-        days_back: Number of days to look back (default: 1)
-    
-    Returns:
-        List of news items with title, description, source, url, published_at
-    """
-    from_date = datetime.now() - timedelta(days=days_back)
-    
-    params = _build_news_params(
-        query="forex OR currency OR EUR OR GBP OR JPY OR USD",
-        from_date=from_date,
+    """Get forex-related news articles."""
+    return await _fetch_articles(
+        keywords=["forex", "currency", "EUR USD", "central bank", "interest rate"],
+        days_back=days_back,
+        count=20,
     )
-    
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(
-                f"{NEWS_API_BASE_URL}/everything",
-                params=params
-            )
-            response.raise_for_status()
-            data = response.json()
-            
-            if data.get("status") == "ok":
-                articles = []
-                for article in data.get("articles", []):
-                    articles.append({
-                        "title": article.get("title", ""),
-                        "description": article.get("description", ""),
-                        "source": article.get("source", {}).get("name", ""),
-                        "url": article.get("url", ""),
-                        "published_at": article.get("publishedAt", ""),
-                        "author": article.get("author", ""),
-                    })
-                return articles
-    except Exception as e:
-        logger.error(f"Failed to fetch forex news: {e}")
-    
-    return []
 
 
 async def get_market_news(topic: str = "markets") -> List[Dict[str, Any]]:
-    """
-    Get market-related news articles.
-    
-    Args:
-        topic: Topic to search for (default: "markets")
-    
-    Returns:
-        List of news items with title, description, source, url, published_at
-    """
-    from_date = datetime.now() - timedelta(days=1)
-    
-    # Map common topics to search queries
-    topic_queries = {
-        "markets": "stock market OR trading OR investors",
-        "economy": "economy OR GDP OR Federal Reserve",
-        "crypto": "cryptocurrency OR bitcoin OR ethereum",
-        "commodities": "gold OR oil OR commodities",
+    """Get market-related news articles by topic."""
+    topic_keywords = {
+        "markets": ["stock market", "trading", "Wall Street", "S&P 500"],
+        "economy": ["economy", "GDP", "Federal Reserve", "inflation", "employment"],
+        "crypto": ["cryptocurrency", "bitcoin", "ethereum", "crypto market"],
+        "commodities": ["gold price", "oil price", "commodities", "crude oil"],
     }
-    query = topic_queries.get(topic.lower(), topic)
-    
-    params = _build_news_params(
-        query=query,
-        from_date=from_date,
-    )
-    
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(
-                f"{NEWS_API_BASE_URL}/everything",
-                params=params
-            )
-            response.raise_for_status()
-            data = response.json()
-            
-            if data.get("status") == "ok":
-                articles = []
-                for article in data.get("articles", []):
-                    articles.append({
-                        "title": article.get("title", ""),
-                        "description": article.get("description", ""),
-                        "source": article.get("source", {}).get("name", ""),
-                        "url": article.get("url", ""),
-                        "published_at": article.get("publishedAt", ""),
-                        "author": article.get("author", ""),
-                    })
-                return articles
-    except Exception as e:
-        logger.error(f"Failed to fetch market news: {e}")
-    
-    return []
+    keywords = topic_keywords.get(topic.lower(), [topic])
+    return await _fetch_articles(keywords=keywords, days_back=1, count=20)
 
 
 # Synchronous wrappers

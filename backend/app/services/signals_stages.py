@@ -92,34 +92,48 @@ Market Regime: {market_regime}
 Volatility Regime: {volatility_regime}
 Trading Mode: {trading_mode}
 
-MACRO DATA:
-- ISM Manufacturing: {ism_manufacturing} (>50=expanding, <50=contracting)
-- ISM Services: {ism_services}
+MACRO DATA (with Rate of Change):
+- GDP: {gdp_latest} (prior: {gdp_prior}, RoC: {gdp_roc_pct}%, direction: {gdp_direction})
+- CPI: {cpi_latest} (prior: {cpi_prior}, RoC: {cpi_roc_pct}%, direction: {cpi_direction})
+- PCE: {pce_latest} (prior: {pce_prior}, RoC: {pce_roc_pct}%, direction: {pce_direction})
+- Unemployment: {unemployment_latest} (direction: {unemployment_direction})
+- Leading Indicator: {leading_latest} (direction: {leading_direction})
+- Consumer Sentiment: {sentiment_latest} (direction: {sentiment_direction})
+- Yield Curve (10Y-2Y): {yield_curve_latest} (direction: {yield_curve_direction})
+- Fed Funds: {fed_funds_latest} (direction: {fed_funds_direction})
+
+ECONOMIC QUADRANT: {economic_quadrant}
+(EXPANSION=growth↑+inflation↓, REFLATION=growth↑+inflation↑, DISINFLATION=growth↓+inflation↓, STAGFLATION=growth↓+inflation↑)
+
+ADDITIONAL DATA:
+- ISM Manufacturing: {ism_manufacturing}
 - Consumer Confidence: {consumer_confidence}
 - NFP Change (monthly): {nfp_change}
-- Unemployment Rate: {unemployment_rate}%
-- GDP Growth (annual): {gdp_growth}%
-- CPI Inflation: {cpi}%
 - Core PCE: {core_pce}%
-- Fed Funds Rate: {fed_funds_rate}%
 - Rate Trend: {rate_trend}
 - CB Bias: {cb_bias}
-- Fiscal Balance (% GDP): {fiscal_deficit}
+- Fiscal Balance: {fiscal_deficit}
 - USD Index (DXY): {dxy}
 - Wage Growth: {wage_growth}%
 - Retail Sales: {retail_sales}
 
+COT POSITIONING:
+- Net: {cot_net_pct}% ({cot_status})
+
 {forex_extra}
 
 Return ONLY this JSON:
-{{"fundamental_bias": "...", "bias_strength": "...", "driver_scores": {{"ism_pmi": "...", "consumer_confidence": "...", "employment": "...", "monetary_policy": "...", "inflation": "...", "gdp_trend": "...", "rate_differential": "...", "commodity_exposure": "...", "fiscal_policy": "...", "trade_balance": "..."}}, "top_drivers": ["...", "..."], "fundamental_reasoning": "...", "swing_trade_aligned": true|false, "swing_trade_note": "..."}}
+{{"fundamental_bias": "...", "bias_strength": "...", "economic_quadrant": "{economic_quadrant}", "driver_scores": {{"ism_pmi": "...", "consumer_confidence": "...", "employment": "...", "monetary_policy": "...", "inflation": "...", "gdp_trend": "...", "rate_differential": "...", "commodity_exposure": "...", "fiscal_policy": "...", "trade_balance": "..."}}, "top_drivers": ["...", "..."], "fundamental_reasoning": "...", "swing_trade_aligned": true|false, "swing_trade_note": "..."}}
 
 Rules:
 - fundamental_bias: BULLISH | BEARISH | NEUTRAL
 - bias_strength: STRONG | MODERATE | WEAK
+- Rate of change matters more than absolute levels. ACCELERATING vs DECELERATING is the key signal.
+- Use the economic quadrant to frame the overall macro environment.
 - Score each driver as: BULLISH | BEARISH | NEUTRAL | N/A
 - top_drivers: 2-3 strongest drivers by name (e.g. ["employment", "monetary_policy"])
-- If fundamental_bias = NEUTRAL and bias_strength = WEAK → output NO_TRADE for the whole signal"""
+- If fundamental_bias = NEUTRAL and bias_strength = WEAK → output NO_TRADE for the whole signal
+- COT extremes (EXTREME_LONG or EXTREME_SHORT) are timing warnings, not directional signals"""
 
 
 STAGE3_SYSTEM = """You are a professional trader's gatekeeping system.
@@ -147,6 +161,11 @@ TECHNICAL INPUTS:
 - Key Resistance: {key_resistance}
 - Price Location: {at_support_resistance}
 
+VOLATILITY RANGES (HV30 proxy):
+- Daily 1SD: ±{daily_1sd} | Weekly 1SD: ±{weekly_1sd} | Monthly 1SD: ±{monthly_1sd}
+- Hard Stop Distance: {hard_stop_distance}
+- Soft Target Distance: {soft_target_distance}
+
 Return ONLY this JSON:
 {{"gate_signal": "...", "entry_recommendation": "...", "technical_alignment": "...", "suggested_entry_price": null|..., "stop_loss_price": null|..., "target_price": null|..., "risk_reward_ratio": null|..., "gate_reasoning": "...", "watch_list_trigger": "..."}}
 
@@ -161,7 +180,9 @@ Rules:
 - RSI > 70 in BULLISH = momentum confirmation (NOT overbought)
 - RSI < 30 in BULLISH = possible entry (amber/green)
 - If R:R < 2.0 → downgrade to WATCH_LIST
-- stop_loss = entry - (ATR × 1.5), target = entry + (ATR × 3)
+- Default stop_loss = entry - (ATR × 1.5), target = entry + (ATR × 3)
+- If stop_loss distance > hard_stop_distance → flag OVERSIZED_STOP, use hard_stop_distance instead
+- Use soft_target_distance as validation: target should not exceed soft_target_distance from entry
 - watch_list_trigger: what event would turn GREEN (e.g. "Price closes above 1.0900")"""
 
 
@@ -269,26 +290,59 @@ def run_stage2(
 - Risk Environment: {macro_data.get('risk_environment', 'N/A')}
 - Regulatory News: {macro_data.get('regulatory_news', 'N/A')}"""
 
+    # Extract ROC-enriched indicator values
+    gdp = macro_data.get("gdp", {})
+    cpi = macro_data.get("cpi", {})
+    pce = macro_data.get("pce", {})
+    unemp = macro_data.get("unemployment", {})
+    leading = macro_data.get("leading_indicator", {})
+    sentiment = macro_data.get("consumer_sentiment", {})
+    yc = macro_data.get("yield_curve", {})
+    ff = macro_data.get("fed_funds", {})
+
     user_prompt = STAGE2_USER_TEMPLATE.format(
         asset=asset,
         market_regime=stage1_output.get("market_regime", "N/A"),
         volatility_regime=stage1_output.get("volatility_regime", "N/A"),
         trading_mode=stage1_output.get("trading_mode", "N/A"),
+        # ROC-enriched fields
+        gdp_latest=gdp.get("latest", "N/A"),
+        gdp_prior=gdp.get("prior", "N/A"),
+        gdp_roc_pct=gdp.get("roc_pct", "N/A"),
+        gdp_direction=gdp.get("direction", "N/A"),
+        cpi_latest=cpi.get("latest", "N/A"),
+        cpi_prior=cpi.get("prior", "N/A"),
+        cpi_roc_pct=cpi.get("roc_pct", "N/A"),
+        cpi_direction=cpi.get("direction", "N/A"),
+        pce_latest=pce.get("latest", "N/A"),
+        pce_prior=pce.get("prior", "N/A"),
+        pce_roc_pct=pce.get("roc_pct", "N/A"),
+        pce_direction=pce.get("direction", "N/A"),
+        unemployment_latest=unemp.get("latest", "N/A"),
+        unemployment_direction=unemp.get("direction", "N/A"),
+        leading_latest=leading.get("latest", "N/A"),
+        leading_direction=leading.get("direction", "N/A"),
+        sentiment_latest=sentiment.get("latest", "N/A"),
+        sentiment_direction=sentiment.get("direction", "N/A"),
+        yield_curve_latest=yc.get("latest", "N/A"),
+        yield_curve_direction=yc.get("direction", "N/A"),
+        fed_funds_latest=ff.get("latest", "N/A"),
+        fed_funds_direction=ff.get("direction", "N/A"),
+        economic_quadrant=macro_data.get("economic_quadrant", "TRANSITIONAL"),
+        # Additional flat fields
         ism_manufacturing=macro_data.get("ism_manufacturing", "N/A"),
-        ism_services=macro_data.get("ism_services", "N/A"),
         consumer_confidence=macro_data.get("consumer_confidence", "N/A"),
         nfp_change=macro_data.get("nfp_change", "N/A"),
-        unemployment_rate=macro_data.get("unemployment_rate", "N/A"),
-        gdp_growth=macro_data.get("gdp_growth", "N/A"),
-        cpi=macro_data.get("cpi", "N/A"),
         core_pce=macro_data.get("core_pce", "N/A"),
-        fed_funds_rate=macro_data.get("fed_funds_rate", "N/A"),
         rate_trend=macro_data.get("rate_trend", "N/A"),
         cb_bias=macro_data.get("cb_bias", "N/A"),
         fiscal_deficit=macro_data.get("fiscal_deficit", "N/A"),
         dxy=macro_data.get("dxy", "N/A"),
         wage_growth=macro_data.get("wage_growth", "N/A"),
         retail_sales=macro_data.get("retail_sales", "N/A"),
+        # COT
+        cot_net_pct=macro_data.get("cot_net_pct", "N/A"),
+        cot_status=macro_data.get("cot_status", "N/A"),
         forex_extra=forex_extra,
     )
 
@@ -319,6 +373,8 @@ def run_stage3(
     """Stage 3: Technical gatekeeping."""
     logger.info(f"[SIGNALS] Running Stage 3: Gatekeeping for {asset}")
 
+    iv = technicals.get("iv_ranges") or {}
+
     user_prompt = STAGE3_USER_TEMPLATE.format(
         fundamental_bias=stage2_out.get("fundamental_bias", "NEUTRAL"),
         bias_strength=stage2_out.get("bias_strength", "WEAK"),
@@ -338,6 +394,12 @@ def run_stage3(
         key_support=technicals.get("key_support", "N/A"),
         key_resistance=technicals.get("key_resistance", "N/A"),
         at_support_resistance=technicals.get("at_support_resistance", "MID_RANGE"),
+        # IV ranges
+        daily_1sd=iv.get("daily_1sd", "N/A"),
+        weekly_1sd=iv.get("weekly_1sd", "N/A"),
+        monthly_1sd=iv.get("monthly_1sd", "N/A"),
+        hard_stop_distance=iv.get("hard_stop_distance", "N/A"),
+        soft_target_distance=iv.get("soft_target_distance", "N/A"),
     )
 
     raw = generate_sync(
@@ -407,12 +469,14 @@ def run_full_pipeline(asset: str) -> Dict[str, Any]:
     Run all 4 stages sequentially and return the final signal.
     This is the main entry point for the signal generation system.
     """
+    import asyncio as _asyncio
     from app.services.signals_data_fetcher import (
         get_regime_data,
         get_full_macro_data,
         classify_asset,
     )
     from app.services.signals_technicals import calculate_technicals, normalise_ticker
+    from app.services.cot_service import _fetch_cot_for_instrument_async, INSTRUMENT_MAPPING
 
     # Normalise ticker for Yahoo Finance
     ticker = normalise_ticker(asset)
@@ -423,6 +487,27 @@ def run_full_pipeline(asset: str) -> Dict[str, Any]:
     regime_data = get_regime_data()
     macro_data = get_full_macro_data(asset)
     technicals = calculate_technicals(ticker)
+
+    # ── COT data (map asset to CFTC instrument) ─────────────────
+    _COT_ASSET_MAP = {
+        "EURUSD": "EUR", "GBPUSD": "GBP", "USDJPY": "JPY",
+        "USDCAD": "CAD", "AUDUSD": "AUD", "USDCHF": "CHF",
+        "NZDUSD": "NZD", "XAUUSD": "GOLD", "XAGUSD": "SILVER",
+    }
+    cot_key = _COT_ASSET_MAP.get(asset.upper())
+    if cot_key and cot_key in INSTRUMENT_MAPPING:
+        try:
+            cot_data = _asyncio.run(_fetch_cot_for_instrument_async(cot_key))
+            macro_data["cot_net_pct"] = cot_data.get("net_pct", "N/A")
+            macro_data["cot_status"] = cot_data.get("position_status", "N/A")
+            logger.info(f"[SIGNALS] COT for {cot_key}: {macro_data['cot_net_pct']}% ({macro_data['cot_status']})")
+        except Exception as e:
+            logger.warning(f"[SIGNALS] COT fetch failed for {cot_key}: {e}")
+            macro_data["cot_net_pct"] = "N/A"
+            macro_data["cot_status"] = "N/A"
+    else:
+        macro_data["cot_net_pct"] = "N/A"
+        macro_data["cot_status"] = "N/A"
 
     if not technicals:
         raise ValueError(f"Could not fetch technical data for {asset}")

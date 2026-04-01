@@ -117,6 +117,11 @@ def calculate_technicals(ticker: str, period: str = "1y") -> Optional[Dict[str, 
         hist_vol_1m = round(float(returns_1m.std() * np.sqrt(252) * 100), 2) if not np.isnan(returns_1m.std()) else None
         hist_vol_3m = round(float(returns_3m.std() * np.sqrt(252) * 100), 2) if not np.isnan(returns_3m.std()) else None
 
+        # ── IV Ranges (HV30 as proxy) ────────────────────────────────────
+        iv_ranges = None
+        if hist_vol_1m and latest is not None:
+            iv_ranges = calculate_iv_ranges(float(latest), hist_vol_1m)
+
         # ── Current price context ─────────────────────────────────────────
         price_vs_20ma = "ABOVE" if latest > latest_ma20 else "BELOW"
         price_vs_60ma = "ABOVE" if latest > latest_ma60 else "BELOW"
@@ -143,6 +148,8 @@ def calculate_technicals(ticker: str, period: str = "1y") -> Optional[Dict[str, 
             "key_support": round(float(key_support), 5) if key_support else None,
             "key_resistance": round(float(key_resistance), 5) if key_resistance else None,
             "at_support_resistance": price_location,
+            # IV ranges (spec Section 9)
+            "iv_ranges": iv_ranges,
             # Extra for frontend display
             "change_pct": round(float(close.pct_change().iloc[-1] * 100), 3),
         }
@@ -150,6 +157,41 @@ def calculate_technicals(ticker: str, period: str = "1y") -> Optional[Dict[str, 
     except Exception as e:
         logger.error(f"Technical analysis failed for {ticker}: {e}")
         return None
+
+
+# ─── IV Ranges (Spec Section 9) ──────────────────────────────────────────────
+
+def calculate_iv_ranges(price: float, iv_annual_pct: float) -> Dict[str, Any]:
+    """
+    Calculate implied volatility price ranges using annualized volatility.
+    Uses HV30 as proxy when real IV is unavailable.
+
+    Args:
+        price: Current asset price.
+        iv_annual_pct: Annualized volatility as percentage (e.g. 15.0 for 15%).
+
+    Returns:
+        Dict with daily/weekly/monthly 1SD/2SD ranges, hard stop, soft target.
+    """
+    iv = iv_annual_pct / 100
+    d1sd = price * iv / np.sqrt(252)
+    w1sd = price * iv / np.sqrt(52)
+    m1sd = price * iv / np.sqrt(12)
+
+    return {
+        "daily_1sd": round(d1sd, 5),
+        "daily_2sd": round(d1sd * 2, 5),
+        "daily_1sd_up": round(price + d1sd, 5),
+        "daily_1sd_down": round(price - d1sd, 5),
+        "daily_2sd_up": round(price + d1sd * 2, 5),
+        "daily_2sd_down": round(price - d1sd * 2, 5),
+        "weekly_1sd": round(w1sd, 5),
+        "monthly_1sd": round(m1sd, 5),
+        "hard_stop_distance": round(m1sd * 1.3, 5),
+        "soft_target_distance": round(m1sd * 3 * 1.3, 5),
+        "iv_annual_pct": round(iv_annual_pct, 2),
+        "iv_proxy_used": "HV30",
+    }
 
 
 # ─── Pattern Detection ───────────────────────────────────────────────────────

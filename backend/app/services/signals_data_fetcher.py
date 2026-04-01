@@ -98,6 +98,53 @@ def fetch_fred_series_history(series_id: str, days: int = 90) -> list[float]:
     return []
 
 
+_ROC_FALLBACK = {"latest": None, "prior": None, "roc_pct": None, "direction": "UNKNOWN"}
+
+
+def fetch_fred_series_with_roc(series_id: str, days: int = 365) -> Dict[str, Any]:
+    """
+    Fetch a FRED series and compute rate-of-change between the two most recent observations.
+    Returns {latest, prior, roc_pct, direction} where direction is
+    ACCELERATING (>0.5%), DECELERATING (<-0.5%), or FLAT.
+    """
+    values = fetch_fred_series_history(series_id, days)
+    if len(values) < 2:
+        return dict(_ROC_FALLBACK)
+
+    latest = values[-1]
+    prior = values[-2]
+    if prior == 0:
+        return {"latest": round(latest, 4), "prior": round(prior, 4), "roc_pct": 0.0, "direction": "FLAT"}
+
+    roc = ((latest - prior) / abs(prior)) * 100
+    if roc > 0.5:
+        direction = "ACCELERATING"
+    elif roc < -0.5:
+        direction = "DECELERATING"
+    else:
+        direction = "FLAT"
+
+    return {
+        "latest": round(latest, 4),
+        "prior": round(prior, 4),
+        "roc_pct": round(roc, 2),
+        "direction": direction,
+    }
+
+
+def classify_quadrant(gdp_dir: str, cpi_dir: str) -> str:
+    """
+    Map (GDP direction, CPI direction) to economic quadrant.
+    Based on V3 spec Section 9.
+    """
+    return {
+        ("ACCELERATING", "DECELERATING"): "EXPANSION",
+        ("ACCELERATING", "ACCELERATING"): "REFLATION",
+        ("DECELERATING", "DECELERATING"): "DISINFLATION",
+        ("DECELERATING", "ACCELERATING"): "STAGFLATION",
+    }.get((gdp_dir, cpi_dir), "TRANSITIONAL")
+
+
 # ─── Yahoo Finance Helpers ──────────────────────────────────────────────────
 
 def fetch_yf_ticker(ticker: str, period: str = "6mo") -> Optional[dict]:
@@ -224,66 +271,64 @@ FRED_SERIES = {
 def get_macro_data(asset_class: str = "FX") -> Dict[str, Any]:
     """
     Gather all macro data for Stage 2 (Macro Fundamental Analysis).
-    Returns a flat dict with all available macro indicators.
+    Key indicators include rate-of-change and direction per the V3 spec.
     """
-    result = {}
+    result: Dict[str, Any] = {}
 
-    # ISM / PMI — USSLIND is the leading index, useful proxy
+    # ── Spec Section 9: ROC-enriched indicators ─────────────────────────
+    result["gdp"] = fetch_fred_series_with_roc("GDPC1", days=730)        # quarterly — wide window
+    result["cpi"] = fetch_fred_series_with_roc("CPIAUCSL", days=365)
+    result["pce"] = fetch_fred_series_with_roc("PCEPI", days=365)
+    result["unemployment"] = fetch_fred_series_with_roc("UNRATE", days=365)
+    result["leading_indicator"] = fetch_fred_series_with_roc("USALOLITONOSTSAM", days=365)
+    result["consumer_sentiment"] = fetch_fred_series_with_roc("UMCSENT", days=365)
+    result["yield_curve"] = fetch_fred_series_with_roc("T10Y2YM", days=365)
+    result["fed_funds"] = fetch_fred_series_with_roc("FEDFUNDS", days=365)
+
+    # ── Economic quadrant from GDP + CPI directions ─────────────────────
+    gdp_dir = result["gdp"].get("direction", "UNKNOWN")
+    cpi_dir = result["cpi"].get("direction", "UNKNOWN")
+    result["economic_quadrant"] = classify_quadrant(gdp_dir, cpi_dir)
+
+    # ── Additional indicators (kept as raw values for compatibility) ────
     result["ism_manufacturing"] = fetch_fred_series("USSLIND", days=90)
-    # ISM Services PMI — NMP is not on FRED, use available proxies
-    result["ism_services"] = fetch_fred_series("USSLIND", days=90)  # Same leading index proxy
-
-    # Consumer Confidence — UMCSENT is University of Michigan Consumer Sentiment
+    result["ism_services"] = fetch_fred_series("USSLIND", days=90)
     result["consumer_confidence"] = fetch_fred_series("UMCSENT", days=90)
-    result["surprise_index"] = None  # Citi Economic Surprise Index not freely available
+    result["surprise_index"] = None
 
-    # Employment
-    result["unemployment_rate"] = fetch_fred_series("UNRATE", days=90)
-
-    # Fetch NFP change (PAYEMS is level, compute diff)
+    # Employment — NFP change
     nfp_series = fetch_fred_series_history("PAYEMS", days=180)
-    if len(nfp_series) >= 2:
-        result["nfp_change"] = round(nfp_series[-1] - nfp_series[-2], 1) if nfp_series else None
-    else:
-        result["nfp_change"] = None
+    result["nfp_change"] = round(nfp_series[-1] - nfp_series[-2], 1) if len(nfp_series) >= 2 else None
 
-    # GDP
-    gdp_series = fetch_fred_series_history("GDP", days=365)
-    if len(gdp_series) >= 2:
-        result["gdp_growth"] = round(gdp_series[-1], 2) if gdp_series else None
-    else:
-        result["gdp_growth"] = None
-
-    # Inflation
-    result["cpi"] = fetch_fred_series("CPIAUCSL", days=180)
+    # Flat shortcuts for backward compat
+    result["unemployment_rate"] = result["unemployment"].get("latest")
+    result["gdp_growth"] = result["gdp"].get("latest")
     result["core_pce"] = fetch_fred_series("PCEPILFE", days=180)
+    result["fed_funds_rate"] = result["fed_funds"].get("latest")
 
-    # Central Bank
-    result["fed_funds_rate"] = fetch_fred_series("FEDFUNDS", days=90)
-
-    # Fiscal balance (US) — approximate from deficit data
+    # Fiscal balance
     result["fiscal_deficit"] = fetch_fred_series("FYFSD", days=365)
 
     # USD Index
     result["dxy"] = fetch_fred_series("DTWEXBGS", days=90)
 
-    # Wage growth — FRB wage growth measure
+    # Wage growth
     result["wage_growth"] = fetch_fred_series("FRBATLWGTUMHWGO", days=365)
 
     # Retail sales
     result["retail_sales"] = fetch_fred_series("RRSFS", days=90)
 
-    # CB Target (US is 2% symmetric)
+    # CB Target
     result["cb_inflation_target"] = 2.0
 
-    # Central bank bias — estimate from rate trend
+    # Rate trend + bias
     fed_rate_series = fetch_fred_series_history("FEDFUNDS", days=180)
     if len(fed_rate_series) >= 3:
-        latest = fed_rate_series[-1]
-        prev = fed_rate_series[-3]
-        if latest > prev + 0.1:
+        latest_rate = fed_rate_series[-1]
+        prev_rate = fed_rate_series[-3]
+        if latest_rate > prev_rate + 0.1:
             result["rate_trend"] = "HIKING"
-        elif latest < prev - 0.1:
+        elif latest_rate < prev_rate - 0.1:
             result["rate_trend"] = "CUTTING"
         else:
             result["rate_trend"] = "PAUSING"

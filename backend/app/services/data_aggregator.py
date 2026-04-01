@@ -106,30 +106,45 @@ async def _fetch_commodities_data() -> Dict[str, Any]:
 
 
 async def _fetch_news_data() -> List[Dict[str, Any]]:
-    """Fetch top news from Finnhub, NewsAPI, and FXStreet RSS."""
+    """Fetch top news from Finnhub, NewsAPI.ai, Alpha Vantage, and FXStreet RSS."""
     all_news = []
-    
+
     # Get Finnhub forex news
     try:
         finnhub_news = await finnhub_service.get_market_news("forex")
-        all_news.extend(finnhub_news[:5])  # Take top 5
+        all_news.extend(finnhub_news[:5])
     except Exception as e:
         logger.warning(f"Failed to fetch Finnhub news: {e}")
-    
-    # Get NewsAPI forex news
+
+    # Get NewsAPI.ai forex news
     try:
         newsapi_news = await news_service.get_forex_news(days_back=1)
-        all_news.extend(newsapi_news[:5])  # Take top 5
+        all_news.extend(newsapi_news[:5])
     except Exception as e:
-        logger.warning(f"Failed to fetch NewsAPI news: {e}")
-    
+        logger.warning(f"Failed to fetch NewsAPI.ai news: {e}")
+
+    # Get Alpha Vantage news with sentiment
+    try:
+        av_news = await alpha_vantage_service.get_forex_news_sentiment(limit=10)
+        for item in av_news[:5]:
+            all_news.append({
+                "headline": item.get("title", ""),
+                "summary": item.get("summary", ""),
+                "source": item.get("source", ""),
+                "url": item.get("url", ""),
+                "sentiment_score": item.get("overall_sentiment_score", 0),
+                "sentiment_label": item.get("overall_sentiment_label", "Neutral"),
+            })
+    except Exception as e:
+        logger.warning(f"Failed to fetch Alpha Vantage news: {e}")
+
     # Get FXStreet RSS news
     try:
         fxstreet_news = await rss_news_service.get_fxstreet_news_async(limit=10)
         all_news.extend(fxstreet_news[:5])
     except Exception as e:
         logger.warning(f"Failed to fetch FXStreet RSS news: {e}")
-    
+
     # Deduplicate by headline
     seen = set()
     unique_news = []
@@ -138,9 +153,9 @@ async def _fetch_news_data() -> List[Dict[str, Any]]:
         if headline and headline not in seen:
             seen.add(headline)
             unique_news.append(item)
-    
-    # Return top 10 unique news
-    return unique_news[:10]
+
+    # Return top 15 unique news
+    return unique_news[:15]
 
 
 async def _fetch_economic_calendar() -> List[Dict[str, Any]]:

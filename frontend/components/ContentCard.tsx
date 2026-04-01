@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { ContentItem } from "@/lib/api";
 import { InstrumentBadge } from "./InstrumentBadge";
@@ -64,11 +65,13 @@ function DirectionBadge({ direction }: { direction: string }) {
 // ─── Main component ──────────────────────────────────────────────────────
 
 export function ContentCard({ item }: ContentCardProps) {
+  const [expanded, setExpanded] = useState(false);
   const typeMeta = TYPE_META[item.type] ?? { label: item.type, color: "bg-zinc-800 text-zinc-300" };
   const border = borderColor(item);
 
   return (
     <article
+      onClick={() => setExpanded((prev) => !prev)}
       className={`
         bg-zinc-950 border border-zinc-800 border-l-2 ${border}
         rounded-md p-4 flex flex-col gap-3
@@ -134,9 +137,14 @@ export function ContentCard({ item }: ContentCardProps) {
       )}
 
       {/* ── Rationale ── */}
-      <p className="text-zinc-400 text-xs leading-relaxed line-clamp-3">
+      <p className={`text-zinc-400 text-xs leading-relaxed ${expanded ? "" : "line-clamp-3"}`}>
         {item.rationale}
       </p>
+      {item.rationale && item.rationale.length > 150 && (
+        <span className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+          {expanded ? "Show less" : "Read more..."}
+        </span>
+      )}
 
       {/* ── Footer: tags + hashtag-like categorization ── */}
       <div className="flex flex-wrap gap-1.5 mt-auto pt-1 border-t border-zinc-800/50">

@@ -165,6 +165,35 @@ def _parse_cot_csv(csv_content: str, instrument_code: str) -> Optional[Dict[str,
         return None
 
 
+def classify_cot_position(cot_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Classify COT positioning from non-commercial money data (V3 spec Section 9).
+    Returns {net_pct, position_status} with thresholds:
+      >50 EXTREME_LONG, >25 NET_LONG, <-40 EXTREME_SHORT, <-20 NET_SHORT, else NEUTRAL.
+    """
+    nc_long = cot_data.get("noncommercial_long", 0)
+    nc_short = cot_data.get("noncommercial_short", 0)
+    oi = cot_data.get("open_interest", 0)
+
+    if not oi:
+        return {"net_pct": 0.0, "position_status": "NEUTRAL"}
+
+    net_pct = round(((nc_long - nc_short) / oi) * 100, 2)
+
+    if net_pct > 50:
+        status = "EXTREME_LONG"
+    elif net_pct > 25:
+        status = "NET_LONG"
+    elif net_pct < -40:
+        status = "EXTREME_SHORT"
+    elif net_pct < -20:
+        status = "NET_SHORT"
+    else:
+        status = "NEUTRAL"
+
+    return {"net_pct": net_pct, "position_status": status}
+
+
 def _parse_socrata_row(row: Dict[str, Any], instrument: str) -> Dict[str, Any]:
     """Parse a single Socrata API row into our standard format."""
     report_date = (row.get("report_date_as_yyyy_mm_dd") or "")[:10]
@@ -174,7 +203,7 @@ def _parse_socrata_row(row: Dict[str, Any], instrument: str) -> Dict[str, Any]:
     noncomm_short = int(row.get("noncomm_positions_short_all") or 0)
     open_interest = int(row.get("open_interest_all") or 0)
 
-    return {
+    parsed = {
         "instrument": instrument.upper(),
         "report_date": report_date,
         "commercial_long": comm_long,
@@ -186,6 +215,8 @@ def _parse_socrata_row(row: Dict[str, Any], instrument: str) -> Dict[str, Any]:
         "open_interest": open_interest,
         "market": row.get("market_and_exchange_names"),
     }
+    parsed.update(classify_cot_position(parsed))
+    return parsed
 
 
 async def _fetch_cot_for_instrument_async(instrument: str) -> Dict[str, Any]:

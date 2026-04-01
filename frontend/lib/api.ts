@@ -873,3 +873,64 @@ export async function scrapeEconEvents(): Promise<EconScrapeResponse> {
 export async function getImpactMap(): Promise<ImpactMapResponse> {
   return fetchAPI<ImpactMapResponse>("/economic-calendar/impact-map");
 }
+
+// ─── News Analysis (AI) ─────────────────────────────────────────────────────
+
+export interface InstrumentImpact {
+  instrument: string;
+  direction: "Bullish" | "Bearish" | "Neutral";
+}
+
+export interface NewsAnalysis {
+  summary: string;
+  instruments: InstrumentImpact[];
+  regime_note: string;
+}
+
+export interface NewsAskResponse {
+  answer: string;
+}
+
+export async function analyzeNews(article: {
+  title: string;
+  description: string;
+  source: string;
+  sentiment_score?: number;
+  sentiment_label?: string;
+}): Promise<NewsAnalysis> {
+  const res = await fetch(`${API_BASE}/news/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: article.title,
+      description: article.description,
+      source: article.source,
+      sentiment_score: article.sentiment_score ?? null,
+      sentiment_label: article.sentiment_label ?? null,
+    }),
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function askAboutNews(params: {
+  title: string;
+  description: string;
+  question: string;
+  analysis_summary?: string;
+  conversation?: { role: string; text: string }[];
+}): Promise<NewsAskResponse> {
+  const res = await fetch(`${API_BASE}/news/ask`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: params.title,
+      description: params.description,
+      question: params.question,
+      analysis_summary: params.analysis_summary ?? "",
+      conversation: params.conversation ?? [],
+    }),
+  });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}

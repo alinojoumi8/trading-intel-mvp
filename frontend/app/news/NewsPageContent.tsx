@@ -9,6 +9,7 @@ import {
   markNewsStarred,
   NewsItem,
 } from "@/lib/api";
+import NewsDetailModal from "@/components/NewsDetailModal";
 
 function timeAgo(dateStr?: string): string {
   if (!dateStr) return "Unknown";
@@ -44,6 +45,8 @@ export default function NewsPageContent() {
   const [fetching, setFetching] = useState(false);
   const [fetchResult, setFetchResult] = useState<{ sources_updated: number; new_items: number; errors: number } | null>(null);
   const [total, setTotal] = useState(0);
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
+  const [selectedItem, setSelectedItem] = useState<NewsItem | null>(null);
   const LIMIT = 30;
   const offsetRef = React.useRef(0);
 
@@ -259,24 +262,43 @@ export default function NewsPageContent() {
                     )}
                   </div>
 
-                  {/* Title */}
-                  <a
-                    href={item.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block mb-2 text-sm font-medium text-zinc-200 hover:text-white leading-snug"
+                  {/* Title — click to open detail modal */}
+                  <button
+                    onClick={() => {
+                      setSelectedItem(item);
+                      if (!item.is_read) handleMarkRead(item);
+                    }}
+                    className="block mb-2 text-sm font-medium text-zinc-200 hover:text-white leading-snug text-left cursor-pointer"
                   >
                     {item.is_read ? "" : (
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-2 mb-0.5" />
                     )}
                     {item.title}
-                  </a>
+                  </button>
 
                   {/* Description */}
                   {item.description && (
-                    <p className="text-zinc-500 text-xs leading-relaxed mb-3 line-clamp-2">
-                      {item.description}
-                    </p>
+                    <div
+                      className="mb-3 cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(item.id)) next.delete(item.id);
+                          else next.add(item.id);
+                          return next;
+                        });
+                      }}
+                    >
+                      <p className={`text-zinc-500 text-xs leading-relaxed ${expandedIds.has(item.id) ? "" : "line-clamp-2"}`}>
+                        {item.description}
+                      </p>
+                      {item.description.length > 100 && (
+                        <span className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                          {expandedIds.has(item.id) ? "Show less" : "Read more..."}
+                        </span>
+                      )}
+                    </div>
                   )}
 
                   {/* Actions */}
@@ -345,6 +367,14 @@ export default function NewsPageContent() {
           )}
         </main>
       </div>
+
+      {/* News Detail Modal */}
+      {selectedItem && (
+        <NewsDetailModal
+          item={selectedItem}
+          onClose={() => setSelectedItem(null)}
+        />
+      )}
     </div>
   );
 }

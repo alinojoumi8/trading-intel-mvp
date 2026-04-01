@@ -248,3 +248,101 @@ async def get_economic_indicators() -> Dict[str, Any]:
 def get_economic_indicators_sync() -> Dict[str, Any]:
     """Synchronous wrapper for get_economic_indicators."""
     return asyncio.run(get_economic_indicators())
+
+
+# ─── News & Sentiment (Alpha Vantage NEWS_SENTIMENT) ────────────────────────
+
+async def get_news_sentiment(
+    tickers: str = "FOREX:EUR",
+    topics: Optional[str] = None,
+    limit: int = 20,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch news with sentiment scores from Alpha Vantage NEWS_SENTIMENT endpoint.
+
+    Args:
+        tickers: Comma-separated ticker list (e.g. "FOREX:EUR,FOREX:GBP").
+                 Supports FOREX:XXX, CRYPTO:XXX, or stock tickers.
+        topics: Optional topic filter (e.g. "economy_fiscal", "finance", "technology").
+        limit: Max articles to return (API max 1000, default 50).
+
+    Returns:
+        List of news dicts with title, summary, source, url, sentiment, ticker_sentiment.
+    """
+    params: Dict[str, str] = {
+        "function": "NEWS_SENTIMENT",
+        "limit": str(min(limit, 200)),
+    }
+    if tickers:
+        params["tickers"] = tickers
+    if topics:
+        params["topics"] = topics
+
+    result = await _make_request(params)
+
+    if not result or "feed" not in result:
+        return []
+
+    articles = []
+    for item in result["feed"][:limit]:
+        # Parse ticker-specific sentiment
+        ticker_sentiments = []
+        for ts in item.get("ticker_sentiment", []):
+            ticker_sentiments.append({
+                "ticker": ts.get("ticker", ""),
+                "relevance": float(ts.get("relevance_score", 0) or 0),
+                "sentiment_score": float(ts.get("ticker_sentiment_score", 0) or 0),
+                "sentiment_label": ts.get("ticker_sentiment_label", "Neutral"),
+            })
+
+        # Parse published time (format: "20260401T132528")
+        time_pub = item.get("time_published", "")
+        published_at = ""
+        if time_pub:
+            try:
+                dt = datetime.strptime(time_pub, "%Y%m%dT%H%M%S")
+                published_at = dt.isoformat()
+            except ValueError:
+                published_at = time_pub
+
+        articles.append({
+            "title": item.get("title", ""),
+            "summary": item.get("summary", ""),
+            "source": item.get("source", ""),
+            "url": item.get("url", ""),
+            "published_at": published_at,
+            "banner_image": item.get("banner_image", ""),
+            "overall_sentiment_score": float(item.get("overall_sentiment_score", 0) or 0),
+            "overall_sentiment_label": item.get("overall_sentiment_label", "Neutral"),
+            "ticker_sentiment": ticker_sentiments,
+            "topics": [t.get("topic", "") for t in item.get("topics", [])],
+        })
+
+    return articles
+
+
+async def get_forex_news_sentiment(limit: int = 20) -> List[Dict[str, Any]]:
+    """Get forex-specific news with sentiment."""
+    return await get_news_sentiment(
+        tickers="FOREX:EUR,FOREX:GBP,FOREX:JPY,FOREX:AUD,FOREX:CAD",
+        limit=limit,
+    )
+
+
+async def get_market_news_sentiment(limit: int = 20) -> List[Dict[str, Any]]:
+    """Get broad market news with sentiment (economy + finance topics)."""
+    return await get_news_sentiment(
+        tickers="",
+        topics="economy_fiscal,economy_monetary,finance,financial_markets",
+        limit=limit,
+    )
+
+
+def get_forex_news_sentiment_sync(limit: int = 20) -> List[Dict[str, Any]]:
+    """Synchronous wrapper."""
+    return asyncio.run(get_forex_news_sentiment(limit))
+
+
+def get_market_news_sentiment_sync(limit: int = 20) -> List[Dict[str, Any]]:
+    """Synchronous wrapper."""
+    return asyncio.run(get_market_news_sentiment(limit))
