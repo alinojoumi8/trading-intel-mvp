@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { SidebarWrapper } from "@/components/SidebarWrapper";
-import { SessionProvider } from "next-auth/react";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,24 +17,24 @@ const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL || "https://trading-intel.exam
 export const metadata: Metadata = {
   metadataBase: new URL(BASE_URL),
   title: {
-    default: "Trading Intelligence",
-    template: "%s | Trading Intelligence",
+    default: "SignaLayer.ai — AI Trading Intelligence",
+    template: "%s | SignaLayer.ai",
   },
-  description: "AI-generated trade briefings, setups, and macro analysis for active traders. Curated market intelligence for forex, commodities, crypto, and indices.",
-  keywords: ["trading", "forex", "gold", "bitcoin", "trade setups", "market analysis", "macro", "trading intelligence"],
-  authors: [{ name: "Trading Intelligence" }],
+  description: "AI-powered market intelligence for retail traders. Trade setups, morning briefings, macro analysis, and real-time signals.",
+  keywords: ["trading", "forex", "gold", "bitcoin", "trade setups", "market analysis", "macro", "trading intelligence", "AI trading"],
+  authors: [{ name: "SignaLayer.ai" }],
   openGraph: {
     type: "website",
     locale: "en_US",
     url: BASE_URL,
-    siteName: "Trading Intelligence",
-    title: "Trading Intelligence",
-    description: "AI-generated trade briefings, setups, and macro analysis for active traders.",
+    siteName: "SignaLayer.ai",
+    title: "SignaLayer.ai — AI Trading Intelligence",
+    description: "AI-powered market intelligence for retail traders.",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Trading Intelligence",
-    description: "AI-generated trade briefings, setups, and macro analysis for active traders.",
+    title: "SignaLayer.ai — AI Trading Intelligence",
+    description: "AI-powered market intelligence for retail traders.",
   },
   robots: {
     index: true,
@@ -60,16 +58,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${geistSans.variable} ${geistMono.variable} min-h-screen antialiased bg-black`}>
-        <SessionProvider>
-          <div className="flex min-h-screen">
-            <SidebarWrapper />
-            <div className="flex-1 flex flex-col min-h-screen bg-zinc-950">
-              {children}
-            </div>
-          </div>
-        </SessionProvider>
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body className={`${geistSans.variable} ${geistMono.variable} min-h-screen antialiased bg-[#09090B]`}>
+        {children}
       </body>
     </html>
   );

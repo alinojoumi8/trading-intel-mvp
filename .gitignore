@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+.venv/
+
+# Environment files
+.env
+.env.local
+.env.production
+.env*.local
+
+# Database
+*.db
+
+# Node
+node_modules/
+.next/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+backend/data/cache/
+
+# Local settings
+.claude/settings.local.json
+.superpowers/

@@ -2,12 +2,14 @@
 Admin Router — AI Content Generation Pipeline
 Provides endpoints for triggering AI content generation manually.
 """
+import hmac
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel
 
+from app.core.config import settings
 from app.services.content_pipeline import (
     run_morning_briefing_pipeline,
     run_setup_pipeline,
@@ -18,7 +20,26 @@ from app.services.content_pipeline import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/admin/generate", tags=["admin"])
+
+def require_admin_api_key(x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key")) -> None:
+    configured_key = settings.ADMIN_API_KEY
+    if not configured_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin generation API is disabled",
+        )
+    if not x_admin_key or not hmac.compare_digest(x_admin_key, configured_key):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid admin API key",
+        )
+
+
+router = APIRouter(
+    prefix="/admin/generate",
+    tags=["admin"],
+    dependencies=[Depends(require_admin_api_key)],
+)
 
 
 class ContentItemResponse(BaseModel):

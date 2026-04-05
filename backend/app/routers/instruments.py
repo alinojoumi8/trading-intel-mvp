@@ -3,16 +3,36 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.core.database import get_db
-from app.models.models import Instrument, AssetClass
+from app.models.models import ContentItem, Instrument, AssetClass
 from app.schemas.schemas import (
     InstrumentCreate,
     InstrumentUpdate,
     InstrumentResponse,
     InstrumentWithContent,
+    ContentItemListResponse,
     AssetClass,
 )
 
 router = APIRouter(prefix="/instruments", tags=["instruments"])
+
+
+def _serialize_content_item(item: ContentItem) -> ContentItemListResponse:
+    return ContentItemListResponse(
+        id=item.id,
+        title=item.title,
+        content_type=item.content_type,
+        direction=item.direction,
+        timeframe=item.timeframe,
+        confidence=item.confidence,
+        featured=item.featured,
+        published_at=item.published_at,
+        entry_zone=item.entry_zone,
+        stop_loss=item.stop_loss,
+        take_profit=item.take_profit,
+        rationale=item.rationale,
+        tags=item.tags,
+        instrument_symbol=item.instrument.symbol if item.instrument else None,
+    )
 
 
 @router.get("/", response_model=List[InstrumentResponse])
@@ -66,6 +86,35 @@ def get_instrument_by_symbol(symbol: str, db: Session = Depends(get_db)):
     if not instrument:
         raise HTTPException(status_code=404, detail="Instrument not found")
     return instrument
+
+
+@router.get("/symbol/{symbol}/content", response_model=List[ContentItemListResponse])
+def get_content_by_symbol(
+    symbol: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db),
+):
+    """
+    Get recent content items for a given instrument symbol.
+    """
+    instrument = (
+        db.query(Instrument)
+        .filter(Instrument.symbol == symbol.upper())
+        .first()
+    )
+    if not instrument:
+        raise HTTPException(status_code=404, detail="Instrument not found")
+
+    items = (
+        db.query(ContentItem)
+        .filter(ContentItem.instrument_id == instrument.id)
+        .order_by(ContentItem.published_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    return [_serialize_content_item(item) for item in items]
 
 
 @router.post("/", response_model=InstrumentResponse, status_code=201)

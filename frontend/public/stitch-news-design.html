@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@700;800&amp;family=Space+Grotesk:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes pulse-custom {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .4; }
+        }
+        .animate-pulse-custom { animation: pulse-custom 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    </style>
+</head>
+<body class="bg-[#09090b] text-[#e5e1e4] font-['Inter']">
+<div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+<main class="w-full max-w-2xl bg-[#131315] border border-[#414751]/20 rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[795px]">
+<header class="flex justify-between items-center w-full px-4 h-14 bg-[#1c1b1d] border-b border-[#414751]/10">
+<div class="flex items-center gap-3">
+<span class="text-xs font-medium text-[#c1c7d3] uppercase tracking-wider">2m ago</span>
+<h1 class="text-lg font-bold text-[#a4c9ff]" style="font-family:'Manrope'">Market Intel</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="bg-[#00b55d]/20 px-3 py-1 rounded-full flex items-center gap-1.5 border border-[#4de082]/20">
+<span class="w-1.5 h-1.5 rounded-full bg-[#4de082]"></span>
+<span class="text-[10px] font-bold text-[#4de082] uppercase tracking-tighter" style="font-family:'Space Grotesk'">Bullish 0.82</span>
+</div>
+<button class="hover:bg-[#2a2a2c] transition-colors p-1.5 rounded-lg text-[#c1c7d3]">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+</header>
+<div class="flex-1 overflow-y-auto no-scrollbar">
+<article class="p-6 space-y-4">
+<h2 class="text-[1.125rem] leading-tight font-semibold text-[#e5e1e4]" style="font-family:'Manrope'">
+ECB Signals Faster Pace of Rate Cuts Amid Cooling Inflation
+</h2>
+<p class="text-[#c1c7d3] text-[0.875rem] leading-relaxed">
+The European Central Bank shifted its tone on Thursday, hinting at a potential acceleration of its monetary easing cycle. Policymakers noted that while underlying price pressures remain, the "disinflationary process is well on track," opening the door for back-to-back cuts in the final quarter of the year. Investors are now pricing in a 75% chance of a 25bps cut at the next meeting.
+</p>
+<a class="inline-flex items-center gap-1 text-[#60a5fa] text-xs font-medium hover:underline" href="#">
+Read original article <span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+</a>
+</article>
+<section class="mx-6 border-t border-[#414751]/10 py-6">
+<div class="flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-[#a4c9ff]" style="font-variation-settings: 'FILL' 1;">psychology</span>
+<h3 class="text-sm font-bold text-[#e5e1e4] tracking-wide" style="font-family:'Manrope'">AI Trading Analysis</h3>
+</div>
+<div class="bg-[#1c1b1d] rounded-lg p-5 border border-[#414751]/10">
+<p class="text-[0.875rem] text-[#e5e1e4] mb-5 leading-snug">
+The ECB's dovish pivot suggests increased pressure on EUR/USD in the near term as yield differentials narrow.
+</p>
+<div class="flex flex-wrap gap-2 mb-5">
+<div class="flex items-center gap-2 bg-[#93000a]/10 border border-[#ffb4ab]/20 px-2.5 py-1 rounded-md">
+<span class="text-[10px] text-[#e5e1e4] font-bold" style="font-family:'Space Grotesk'">EUR/USD</span>
+<span class="material-symbols-outlined text-[14px] text-[#ffb4ab]">south</span>
+<span class="text-[10px] text-[#ffb4ab] font-bold uppercase" style="font-family:'Space Grotesk'">Bearish</span>
+</div>
+<div class="flex items-center gap-2 bg-[#353437] border border-[#8b919d]/20 px-2.5 py-1 rounded-md">
+<span class="text-[10px] text-[#e5e1e4] font-bold" style="font-family:'Space Grotesk'">GBP/USD</span>
+<span class="material-symbols-outlined text-[14px] text-amber-400">horizontal_rule</span>
+<span class="text-[10px] text-amber-400 font-bold uppercase" style="font-family:'Space Grotesk'">Neutral</span>
+</div>
+</div>
+<div class="flex items-center gap-2 pt-4 border-t border-[#414751]/5">
+<span class="material-symbols-outlined text-[16px] text-[#c1c7d3]">database</span>
+<span class="text-[11px] font-medium text-[#c1c7d3] uppercase tracking-widest" style="font-family:'Space Grotesk'">
+Aligns with current <span class="text-[#60a5fa]">DISINFLATION</span> regime
+</span>
+</div>
+</div>
+<div class="mt-4 bg-[#1c1b1d]/50 rounded-lg p-5 border border-[#414751]/5 animate-pulse-custom">
+<div class="h-2.5 bg-[#353437] rounded-full w-3/4 mb-3"></div>
+<div class="h-2 bg-[#353437] rounded-full w-1/2 mb-5"></div>
+<div class="flex gap-2">
+<div class="h-6 w-20 bg-[#353437] rounded-md"></div>
+<div class="h-6 w-20 bg-[#353437] rounded-md"></div>
+</div>
+</div>
+</section>
+<section class="p-6 space-y-6">
+<div class="space-y-4">
+<div class="space-y-4">
+<div class="flex justify-end">
+<div class="bg-[#00315d] text-white px-4 py-2.5 rounded-xl rounded-tr-none max-w-[85%] text-sm shadow-sm">
+How will this affect the Dax 40 index?
+</div>
+</div>
+<div class="flex justify-start items-start gap-2">
+<div class="w-6 h-6 rounded-full bg-[#a4c9ff]/20 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-[14px] text-[#a4c9ff]" style="font-variation-settings: 'FILL' 1;">smart_toy</span>
+</div>
+<div class="bg-[#353437] text-[#e5e1e4] px-4 py-2.5 rounded-xl rounded-tl-none max-w-[85%] text-sm shadow-sm">
+Lower interest rates are generally bullish for the DAX as it reduces borrowing costs for corporations. However, keep an eye on export demand if the EUR weakens significantly.
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+<footer class="p-4 bg-[#201f22] border-t border-[#414751]/10">
+<div class="relative group">
+<input class="w-full bg-[#353437] border-none rounded-lg py-3 px-4 pr-12 text-sm text-[#e5e1e4] placeholder:text-[#c1c7d3] focus:ring-1 focus:ring-[#a4c9ff]/40 transition-all" placeholder="Ask about this news..." type="text"/>
+<button class="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-[#a4c9ff] hover:bg-[#a4c9ff]/10 rounded-md transition-all active:scale-90 duration-100">
+<span class="material-symbols-outlined">send</span>
+</button>
+</div>
+</footer>
+</main>
+</div>
+</body></html>

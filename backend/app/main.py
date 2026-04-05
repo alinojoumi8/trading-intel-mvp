@@ -15,10 +15,16 @@ app = FastAPI(
     debug=settings.DEBUG,
 )
 
+cors_origins = [
+    origin.strip()
+    for origin in settings.CORS_ORIGINS.split(",")
+    if origin.strip()
+]
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins or [settings.FRONTEND_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -39,8 +45,11 @@ app.include_router(multi_timeframe.router)
 app.include_router(alerts.router)
 app.include_router(correlation.router)
 app.include_router(economic_calendar.router)
-app.include_router(auth.router, prefix="/api")
-app.include_router(billing.router, prefix="/api")
+app.include_router(auth.router)
+app.include_router(billing.router)
+# Preserve legacy prefixed routes without exposing duplicate docs.
+app.include_router(auth.router, prefix="/api", include_in_schema=False)
+app.include_router(billing.router, prefix="/api", include_in_schema=False)
 
 
 @app.get("/")

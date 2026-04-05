@@ -1,4 +1,6 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { getApiBaseUrl } from "@/lib/config";
+
+const API_BASE = getApiBaseUrl();
 
 export interface Tag {
   id: number;
@@ -17,7 +19,7 @@ export interface ContentItem {
   entry_zone?: string;
   stop_loss?: string;
   take_profit?: string;
-  timeframe?: "scalp" | "H4" | "D1";
+  timeframe?: "scalp" | "h4" | "d1" | "w1";
   confidence?: "high" | "medium" | "low";
   rationale: string;
   tags: string[];
@@ -122,11 +124,11 @@ export async function getInstruments(): Promise<Instrument[]> {
 }
 
 export async function getInstrument(symbol: string): Promise<Instrument> {
-  return fetchAPI<Instrument>(`/instruments/${symbol}`);
+  return fetchAPI<Instrument>(`/instruments/symbol/${encodeURIComponent(symbol)}`);
 }
 
 export async function getContentByInstrument(symbol: string): Promise<ContentItem[]> {
-  const raw = await fetchAPI<Record<string, unknown>[]>(`/instruments/${symbol}/content`);
+  const raw = await fetchAPI<Record<string, unknown>[]>(`/instruments/symbol/${encodeURIComponent(symbol)}/content`);
   return normalizeContentItems(raw);
 }
 

@@ -91,12 +91,27 @@ Create a `.env` file in the `backend/` directory:
 # Database
 DATABASE_URL=sqlite:///./trading_intel.db
 
+# Auth
+JWT_SECRET=replace_with_a_long_random_secret
+
 # Alpha Vantage (forex/equity data)
 ALPHA_VANTAGE_API_KEY=your_key_here
 
 # MiniMax LLM (AI content generation)
 MINIMAX_API_KEY=your_key_here
 MINIMAX_MODEL=MiniMax-Text-01
+
+# Billing
+STRIPE_SECRET_KEY=your_key_here
+STRIPE_PRICE_ID=price_xxx
+STRIPE_WEBHOOK_SECRET=whsec_xxx
+
+# Frontend/backend integration
+FRONTEND_URL=http://localhost:3000
+CORS_ORIGINS=http://localhost:3000
+
+# Admin API protection
+ADMIN_API_KEY=replace_with_a_second_random_secret
 
 # Optional: Finnhub (news, sentiment)
 FINNHUB_API_KEY=your_key_here
@@ -108,6 +123,8 @@ NEWSAPI_KEY=your_key_here
 ENVIRONMENT=development
 DEBUG=true
 ```
+
+If you use the `/admin/generate/*` HTTP endpoints, send the configured admin key as an `X-Admin-Key` header.
 
 ## Manual Content Generation
 

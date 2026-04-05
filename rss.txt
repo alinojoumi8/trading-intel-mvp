@@ -1,0 +1,147 @@
+Category,Name,RSS URL
+Forex,ForexLive,https://www.forexlive.com/rss/
+Forex,FXStreet,https://www.fxstreet.com/rss
+Forex,Myfxbook,https://www.myfxbook.com/rss
+Forex,DailyForex,https://www.dailyforex.com/feed
+Forex,Forex Crunch,https://www.forexcrunch.com/feed
+Forex,Investing.com Forex,https://www.investing.com/rss/news_1.rss
+Forex,OANDA Blog,https://www.oanda.com/blog/feed/
+Forex,FX Markets,https://www.fx-markets.com/feed
+Forex,Pearl Lemon Invest,https://pearllemoninvest.com/feed
+Forex,Forex Peace Army,https://www.forexpeacearmy.com/feed
+Forex,DailyFX,https://www.dailyfx.com/feeds/market-news
+Forex,ForexFactory,https://www.forexfactory.com/rss.xml
+Forex,FXEmpire,https://www.fxempire.com/rss/news
+Forex,TradingView Ideas,https://www.tradingview.com/markets/currencies/news/
+Forex,Trading Economics,https://tradingeconomics.com/rss
+Forex,BabyPips,https://www.babypips.com/feed
+Forex,Forex.com,https://www.forex.com/en/rss/
+Forex,City Index Forex,https://www.cityindex.com/en-gb/market-analysis/rss
+Forex,FXStreet Analysis,https://www.fxstreet.com/analysis/rss
+Forex,FXCM,https://www.fxcm.com/insights/feed/
+Forex,XTB Research,https://www.xtb.com/en/education/feed
+
+Cryptocurrency,Cointelegraph,https://cointelegraph.com/rss
+Cryptocurrency,NewsBTC,https://www.newsbtc.com/feed
+Cryptocurrency,Bitcoinist,https://bitcoinist.com/feed
+Cryptocurrency,CryptoPotato,https://cryptopotato.com/feed
+Cryptocurrency,Decrypt,https://decrypt.co/feed
+Cryptocurrency,BeInCrypto,https://beincrypto.com/feed
+Cryptocurrency,CoinDesk,https://www.coindesk.com/feed
+Cryptocurrency,Live Bitcoin News,https://www.livebitcoinnews.com/feed
+Cryptocurrency,Bitcoin Insider,https://www.bitcoininsider.org/feed
+Cryptocurrency,CoinGeek,https://coingeek.com/feed
+Cryptocurrency,CryptoBriefing,https://cryptobriefing.com/feed/
+Cryptocurrency,U.Today,https://u.today/feed
+Cryptocurrency,Blockchain News,https://blockchain.news/rss.xml
+Cryptocurrency,CoinTurk,https://cointurk.com/en/feed
+Cryptocurrency,CryptoSlate,https://cryptoslate.com/feed/
+Cryptocurrency,Bitcoin Magazine,https://bitcoinmagazine.com/feed
+Cryptocurrency,Coin Journal,https://coinjournal.net/feed/
+Cryptocurrency,CoinMarketCap News,https://coinmarketcap.com/rss/
+Cryptocurrency,Blockworks,https://blockworks.co/feed/
+Cryptocurrency,The Block,https://www.theblockcrypto.com/rss.xml
+Cryptocurrency,AMBCrypto,https://ambcrypto.com/feed/
+Cryptocurrency,CryptoBriefing Research,https://cryptobriefing.com/category/research/feed/
+Cryptocurrency,Crypto News,https://cryptonews.com/news/feed/
+Cryptocurrency,DeFi Pulse,https://defipulse.com/blog/feed
+Cryptocurrency,CoinGape,https://coingape.com/feed/
+
+Futures,NASDAQ Trader,https://www.nasdaq.com/feed/futures
+Futures,CME Group,https://www.cmegroup.com/feed
+Futures,Optimus Futures,https://www.optimusfutures.com/blog/feed
+Futures,Tradeciety,https://www.tradeciety.com/feed
+Futures,Earn2Trade,https://www.earn2trade.com/blog/feed
+Futures,The Price Futures Group,https://www.pricegroup.com/feed
+Futures,Futures Magazine,https://www.futuresmag.com/rss
+Futures,Daily Futures Report,https://www.dailyfuturesreport.com/feed
+Futures,Futures Source,https://www.futuressource.com/feed
+Futures,Futures.io,https://www.futures.io/feed
+Futures,ICE Futures,https://www.theice.com/news/rss
+Futures,Eurex Exchange,https://www.eurex.com/ec-en/about/news/rss
+Futures,NinjaTrader,https://ninjatrader.com/feed/
+Futures,E-mini Futures,https://www.emini-futures.com/feed
+Futures,TopStep,https://www.topsteptrader.com/blog/feed/
+Futures,AMP Futures,https://www.ampfutures.com/blog/feed/
+Futures,Daniels Trading,https://www.danielstrading.com/blog/feed/
+Futures,Commodity.com,https://commodity.com/feed/
+
+General,Reuters Business,https://feeds.reuters.com/reuters/businessNews
+General,Bloomberg Markets,https://feeds.bloomberg.com/markets/news.rss
+General,MarketWatch,https://feeds.marketwatch.com/marketwatch/marketpulse/
+General,Financial Times Markets,https://www.ft.com/markets?format=rss
+General,WSJ Markets,https://feeds.wsj.com/wsj/xml/rss/3_7455.xml
+General,Yahoo Finance,https://feeds.finance.yahoo.com/rss/2.0/headline
+General,Seeking Alpha,https://seekingalpha.com/feed.xml
+General,TradingView News,https://www.tradingview.com/news/
+General,CNBC Markets,https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069
+General,Forbes Markets,https://www.forbes.com/real-time/feed2/
+General,Barron's,https://www.barrons.com/xml/rss/3_7510.xml
+General,Investopedia,https://www.investopedia.com/feedbuilder/feed/rss
+General,InvestorPlace,https://investorplace.com/feed/
+General,The Motley Fool,https://www.fool.com/feed/
+General,Morningstar,https://www.morningstar.com/rss
+General,Kiplinger,https://www.kiplinger.com/rss.xml
+General,MoneyWatch,https://www.cbsnews.com/latest/rss/moneywatch
+General,CNN Business,https://rss.cnn.com/rss/money_latest.rss
+General,BBC Business,https://feeds.bbci.co.uk/news/business/rss.xml
+
+Economic,Federal Reserve,https://www.federalreserve.gov/feeds/press_all.xml
+Economic,ECB Press,https://www.ecb.europa.eu/rss/press.html
+Economic,Bank of England,https://www.bankofengland.co.uk/rss
+Economic,Bank of Japan,https://www.boj.or.jp/en/rss/whatsnew.xml
+Economic,Bureau of Labor Statistics,https://www.bls.gov/feed/news_release/rss.xml
+Economic,Bureau of Economic Analysis,https://www.bea.gov/rss/news_releases.xml
+Economic,OECD,https://www.oecd.org/rss/generalrss.xml
+Economic,World Bank,https://www.worldbank.org/en/news/rss
+Economic,IMF News,https://www.imf.org/en/news/rss
+Economic,Reserve Bank of Australia,https://www.rba.gov.au/rss/rss-cb-media-releases.xml
+Economic,Bank of Canada,https://www.bankofcanada.ca/feeds/media-releases/
+Economic,Swiss National Bank,https://www.snb.ch/en/rss/
+Economic,People's Bank of China,http://www.pbc.gov.cn/en/3688110/index.rss
+
+Commodities,Kitco Gold News,https://www.kitco.com/rss/GoldSilverNews.xml
+Commodities,Oil Price,https://oilprice.com/rss/main
+Commodities,Investing.com Commodities,https://www.investing.com/rss/news_285.rss
+Commodities,Platts,https://www.spglobal.com/commodity-insights/en/rss-feeds
+Commodities,Metal Bulletin,https://www.metalbulletin.com/rss/
+Commodities,AgWeb,https://www.agweb.com/rss/news
+Commodities,Successful Farming,https://www.agriculture.com/rss/news
+Commodities,Farm Progress,https://www.farmprogress.com/rss/news
+Commodities,Mining.com,https://www.mining.com/feed/
+Commodities,Natural Gas Intelligence,https://www.naturalgasintel.com/feed/
+Commodities,Energy Information Administration,https://www.eia.gov/rss/todayinenergy.xml
+Commodities,London Metal Exchange,https://www.lme.com/News/rss
+
+Options,CBOE,https://www.cboe.com/rss/
+Options,OptionAlpha,https://optionalpha.com/feed
+Options,Tastytrade,https://www.tastytrade.com/definitions/rss
+Options,Options Industry Council,https://www.optionseducation.org/rss/
+Options,NASDAQ Options,https://www.nasdaq.com/feed/options
+Options,OIC Education,https://www.optionseducation.org/feed/
+Options,Option Pit,https://www.optionpit.com/feed/
+Options,Options Action,https://www.cnbc.com/options-action/
+
+Stocks,Benzinga,https://www.benzinga.com/feed
+Stocks,Zacks,https://www.zacks.com/rss/articles.xml
+Stocks,TheStreet,https://www.thestreet.com/rss/latest-news
+Stocks,StockNews,https://stocknews.com/feed/
+Stocks,GuruFocus,https://www.gurufocus.com/rss.php
+Stocks,Simply Wall St,https://simplywall.st/rss/
+Stocks,TipRanks,https://www.tipranks.com/rss/
+Stocks,Finviz,https://finviz.com/news.ashx?v=rss
+Stocks,Alpha Architect,https://alphaarchitect.com/feed/
+Stocks,Validea,https://www.validea.com/feed/
+Stocks,Dividend.com,https://www.dividend.com/rss/
+Stocks,Dividend Growth Investor,https://www.dividendgrowthinvestor.com/feeds/posts/default
+
+Alternative,Hedge Fund News,https://www.hedgefundnews.com/feed/
+Alternative,Private Equity News,https://www.penews.com/rss/
+Alternative,REITs,https://www.reit.com/news/rss
+Alternative,Institutional Investor,https://www.institutionalinvestor.com/rss/
+Alternative,Pension & Investments,https://www.pionline.com/rss/all-news
+
+Technical,StockCharts,https://stockcharts.com/articles/rss.xml
+Technical,ElliottWaveTrader,https://www.elliottwave.com/rss/
+Technical,ChartWatchers,https://stockcharts.com/articles/chartwatchers/rss.xml
+Technical,Market Technicians Association,https://www.mta.org/feed/
