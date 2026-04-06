@@ -66,6 +66,8 @@ VIX Current: {vix_current}
 VIX 30 Days Ago: {vix_30d_ago}
 VIX % Change (30d): {vix_pct_change}%
 
+FED SENTIMENT (FSM):{fed_context_block}
+
 Return ONLY this JSON (no markdown, no explanation):
 {{"market_regime": "...", "volatility_regime": "...", "trading_mode": "...", "position_size_modifier": ..., "regime_reasoning": "...", "vix_signal": "..."}}
 
@@ -76,6 +78,8 @@ Rules:
 - position_size_modifier: 0.25 | 0.5 | 0.75 | 1.0 (halved for HIGH vol, quartered for EXTREME)
 - If BEAR market: trading_mode = REDUCE_EXPOSURE or SIDELINES only
 - If VIX % change >25%: volatility_regime = HIGH minimum
+- If Fed is in active TIGHTENING cycle with HIGH conviction → add hawkish pressure to volatility regime
+- If Fed pivot is in progress (is_pivot_in_progress=true) → note transition risk in regime_reasoning
 - regime_reasoning: professional explanation using the specific numbers above
 - vix_signal: what VIX reading implies for exposure: REDUCE_EXPOSURE | HOLD | ADD_EXPOSURE | DAY_TRADE_MODE"""
 
@@ -122,6 +126,8 @@ COT POSITIONING:
 
 {forex_extra}
 
+FED MONETARY POLICY (FSM):{fed_context_block}
+
 Return ONLY this JSON:
 {{"fundamental_bias": "...", "bias_strength": "...", "economic_quadrant": "{economic_quadrant}", "driver_scores": {{"ism_pmi": "...", "consumer_confidence": "...", "employment": "...", "monetary_policy": "...", "inflation": "...", "gdp_trend": "...", "rate_differential": "...", "commodity_exposure": "...", "fiscal_policy": "...", "trade_balance": "..."}}, "top_drivers": ["...", "..."], "fundamental_reasoning": "...", "swing_trade_aligned": true|false, "swing_trade_note": "..."}}
 
@@ -133,7 +139,10 @@ Rules:
 - Score each driver as: BULLISH | BEARISH | NEUTRAL | N/A
 - top_drivers: 2-3 strongest drivers by name (e.g. ["employment", "monetary_policy"])
 - If fundamental_bias = NEUTRAL and bias_strength = WEAK → output NO_TRADE for the whole signal
-- COT extremes (EXTREME_LONG or EXTREME_SHORT) are timing warnings, not directional signals"""
+- COT extremes (EXTREME_LONG or EXTREME_SHORT) are timing warnings, not directional signals
+- FSM divergence: if language_score ≠ market_score direction → note as a surprise risk in fundamental_reasoning
+- FSM USD_bullish signal + HAWKISH regime → strengthen BEARISH bias on risk assets; USD_bearish → weaken it
+- If FSM conviction is HIGH, weight FSM signal heavily in monetary_policy driver score"""
 
 
 STAGE3_SYSTEM = """You are a professional trader's gatekeeping system.
@@ -227,7 +236,36 @@ Rules:
 
 # ─── Stage 1: Regime ──────────────────────────────────────────────────────────
 
-def run_stage1(regime_data: Dict[str, Any]) -> Dict[str, Any]:
+def _build_fed_context_block_stage1(fsm: Optional[Dict[str, Any]]) -> str:
+    """Build the FED SENTIMENT block for Stage 1 prompt."""
+    if not fsm or not fsm.get("available"):
+        return " Not available"
+    pivot = "YES" if fsm.get("is_pivot_in_progress") else "NO"
+    fomc_line = ""
+    days = fsm.get("days_to_next_fomc")
+    if days is not None:
+        fomc_line = f"\n- Days to Next FOMC: {days:.1f}d {'⚠ PRE-FOMC WINDOW' if fsm.get('pre_fomc_window') else ''}"
+    return (
+        f"\n- Fed Regime: {fsm.get('fed_regime', 'N/A')}"
+        f"\n- Composite Score: {fsm.get('composite_score', 'N/A')} (−100=dovish, +100=hawkish)"
+        f"\n- Volatility Multiplier: {fsm.get('volatility_multiplier', 'N/A')}"
+        f"\n- Pivot in Progress: {pivot}"
+        f"{fomc_line}"
+    )
+
+
+def _build_fed_context_block_stage2(fsm: Optional[Dict[str, Any]]) -> str:
+    """Build the FED MONETARY POLICY block for Stage 2 prompt."""
+    if not fsm or not fsm.get("available"):
+        return " Not available"
+    return (
+        f"\n- Language Score: {fsm.get('language_score', 'N/A')} | Market Score: {fsm.get('market_score', 'N/A')}"
+        f"\n- Divergence: {fsm.get('divergence_category', 'N/A')}"
+        f"\n- USD Signal: {fsm.get('signal_direction', 'N/A')} (conviction: {fsm.get('signal_conviction', 'N/A')})"
+    )
+
+
+def run_stage1(regime_data: Dict[str, Any], fsm_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Stage 1: Classify market regime."""
     logger.info("[SIGNALS] Running Stage 1: Regime Classification")
 
@@ -247,13 +285,14 @@ def run_stage1(regime_data: Dict[str, Any]) -> Dict[str, Any]:
         vix_current=vix,
         vix_30d_ago=vix_ago,
         vix_pct_change=vix_pct,
+        fed_context_block=_build_fed_context_block_stage1(fsm_context),
     )
 
     raw = generate_sync(
         prompt=user_prompt,
         system_prompt=STAGE1_SYSTEM,
         temperature=0.0,
-        max_tokens=4000,
+        max_tokens=8000,
     )
 
     result = _extract_json(raw)
@@ -271,6 +310,7 @@ def run_stage2(
     macro_data: Dict[str, Any],
     stage1_output: Dict[str, Any],
     asset: str,
+    fsm_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Stage 2: Macro fundamental analysis."""
     logger.info(f"[SIGNALS] Running Stage 2: Macro Analysis for {asset}")
@@ -344,13 +384,14 @@ def run_stage2(
         cot_net_pct=macro_data.get("cot_net_pct", "N/A"),
         cot_status=macro_data.get("cot_status", "N/A"),
         forex_extra=forex_extra,
+        fed_context_block=_build_fed_context_block_stage2(fsm_context),
     )
 
     raw = generate_sync(
         prompt=user_prompt,
         system_prompt=STAGE2_SYSTEM,
         temperature=0.2,
-        max_tokens=5000,
+        max_tokens=12000,
     )
 
     result = _extract_json(raw)
@@ -477,6 +518,7 @@ def run_full_pipeline(asset: str) -> Dict[str, Any]:
     )
     from app.services.signals_technicals import calculate_technicals, normalise_ticker
     from app.services.cot_service import _fetch_cot_for_instrument_async, INSTRUMENT_MAPPING
+    from app.services.fed_sentiment_service import get_fsm_context_for_pipeline
 
     # Normalise ticker for Yahoo Finance
     ticker = normalise_ticker(asset)
@@ -487,6 +529,21 @@ def run_full_pipeline(asset: str) -> Dict[str, Any]:
     regime_data = get_regime_data()
     macro_data = get_full_macro_data(asset)
     technicals = calculate_technicals(ticker)
+
+    # ── FSM Context (non-blocking: failure → neutral) ────────────
+    try:
+        from app.core.database import SessionLocal
+        _db = SessionLocal()
+        fsm_context = get_fsm_context_for_pipeline(db_session=_db)
+        _db.close()
+        logger.info(
+            f"[SIGNALS] FSM context: regime={fsm_context.get('fed_regime')}, "
+            f"composite={fsm_context.get('composite_score')}, "
+            f"signal={fsm_context.get('signal_direction')} ({fsm_context.get('signal_conviction')})"
+        )
+    except Exception as _e:
+        logger.warning(f"[SIGNALS] FSM context fetch failed (continuing without): {_e}")
+        fsm_context = None
 
     # ── COT data (map asset to CFTC instrument) ─────────────────
     _COT_ASSET_MAP = {
@@ -515,15 +572,15 @@ def run_full_pipeline(asset: str) -> Dict[str, Any]:
     asset_class = classify_asset(asset)
 
     # ── Stage 1 ──────────────────────────────────────────────────
-    stage1 = run_stage1(regime_data)
+    stage1 = run_stage1(regime_data, fsm_context=fsm_context)
 
     # ── Stage 2 ──────────────────────────────────────────────────
-    stage2 = run_stage2(macro_data, stage1, asset)
+    stage2 = run_stage2(macro_data, stage1, asset, fsm_context=fsm_context)
 
     # Hard stop: if neutral/weak fundamentals, output NO_TRADE
     if stage2.get("fundamental_bias") == "NEUTRAL" and stage2.get("bias_strength") == "WEAK":
         logger.info(f"[SIGNALS] Stopping: NEUTRAL/WEAK fundamentals for {asset}")
-        return _make_no_trade(asset, asset_class, stage1, stage2, "Weak fundamentals")
+        return _make_no_trade(asset, asset_class, stage1, stage2, "Weak fundamentals", fsm_context, ticker)
 
     # ── Stage 3 ──────────────────────────────────────────────────
     stage3 = run_stage3(technicals, stage1, stage2, asset)
@@ -531,16 +588,48 @@ def run_full_pipeline(asset: str) -> Dict[str, Any]:
     # Hard stop: if RED gate with no trigger, output NO_TRADE
     if stage3.get("gate_signal") == "RED" and not stage3.get("watch_list_trigger"):
         logger.info(f"[SIGNALS] Stopping: RED gate with no trigger for {asset}")
-        return _make_no_trade(asset, asset_class, stage1, stage2, "RED gate")
+        return _make_no_trade(asset, asset_class, stage1, stage2, "RED gate", fsm_context, ticker)
 
     # ── Stage 4 ──────────────────────────────────────────────────
     stage4 = run_stage4(stage1, stage2, stage3, asset)
+
+    # ── Apply FSM position size modifier (take the more conservative) ──
+    if fsm_context and fsm_context.get("available"):
+        fsm_pos_mod = fsm_context.get("position_size_modifier", 1.0)
+        s1_pos_mod = stage1.get("position_size_modifier", 1.0)
+        # Use the lower of the two modifiers
+        if fsm_pos_mod < s1_pos_mod:
+            logger.info(
+                f"[SIGNALS] FSM position_size_modifier ({fsm_pos_mod}) "
+                f"overrides Stage 1 ({s1_pos_mod})"
+            )
+            stage1["position_size_modifier"] = fsm_pos_mod
+            stage1["fsm_position_override"] = True
+
+    # ── Pre-FOMC event-risk override ─────────────────────────────────
+    if fsm_context and fsm_context.get("pre_fomc_window") and stage4:
+        days_fomc = fsm_context.get("days_to_next_fomc", 0)
+        hours_fomc = round(days_fomc * 24) if days_fomc is not None else 0
+        fomc_risk = f"FOMC meeting in ~{hours_fomc}h — reduced position sizing, elevated event risk"
+        key_risks = stage4.get("key_risks") or []
+        if isinstance(key_risks, list) and fomc_risk not in key_risks:
+            key_risks.insert(0, fomc_risk)
+            stage4["key_risks"] = key_risks
+        # Halve recommended position size if ≤ 24h to FOMC
+        if days_fomc is not None and days_fomc <= 1.0:
+            cur_size = stage4.get("recommended_position_size_pct", 100)
+            if isinstance(cur_size, (int, float)) and cur_size > 50:
+                stage4["recommended_position_size_pct"] = cur_size * 0.5
+                stage4["fomc_size_reduction"] = True
+                logger.info(f"[SIGNALS] Pre-FOMC (<24h): position size halved to {stage4['recommended_position_size_pct']}%")
+        stage4["pre_fomc_window"] = True
 
     # ── Assemble ────────────────────────────────────────────────
     return {
         "asset": asset,
         "asset_class": asset_class,
         "ticker_used": ticker,
+        "fsm_context": fsm_context,
         "stage1": stage1,
         "stage2": stage2,
         "stage3": stage3,
@@ -554,10 +643,14 @@ def _make_no_trade(
     stage1: Dict,
     stage2: Dict,
     reason: str,
+    fsm_context: Optional[Dict[str, Any]] = None,
+    ticker: Optional[str] = None,
 ) -> Dict:
     return {
         "asset": asset,
         "asset_class": asset_class,
+        "ticker_used": ticker,
+        "fsm_context": fsm_context,
         "stage1": stage1,
         "stage2": stage2,
         "stage3": None,

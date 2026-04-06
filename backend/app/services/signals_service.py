@@ -84,6 +84,8 @@ def _save_signal(result: Dict[str, Any]) -> TradingSignal:
             stage2_output=json.dumps(stage2),
             stage3_output=json.dumps(stage3) if stage3 else None,
             stage4_output=json.dumps(stage4),
+            # FSM context snapshot (Fed sentiment at signal generation time)
+            fsm_context_json=json.dumps(result.get("fsm_context")) if result.get("fsm_context") else None,
             # Metadata
             outcome="ACTIVE",
             generated_at=datetime.utcnow(),

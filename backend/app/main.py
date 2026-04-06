@@ -3,10 +3,28 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import Base, engine
-from app.routers import content, instruments, tags, pipeline, news, news_analysis, signals, trade_outcomes, cot_history, regime, multi_timeframe, alerts, correlation, economic_calendar, auth, billing
+from app.routers import content, instruments, tags, pipeline, news, news_analysis, signals, trade_outcomes, cot_history, regime, multi_timeframe, alerts, correlation, economic_calendar, auth, billing, fed_sentiment
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
+
+
+def _add_column_if_missing(table: str, column: str, ddl: str) -> None:
+    """Idempotent SQLite ALTER TABLE — adds a column only if it doesn't exist."""
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            cols = [row[1] for row in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()]
+            if column not in cols:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
+                conn.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Migration {table}.{column} skipped: {e}")
+
+
+# Lightweight in-place migrations for new columns added after initial release
+_add_column_if_missing("trading_signals", "fsm_context_json", "TEXT")
 
 app = FastAPI(
     title="Trading Intel API",
@@ -47,6 +65,7 @@ app.include_router(correlation.router)
 app.include_router(economic_calendar.router)
 app.include_router(auth.router)
 app.include_router(billing.router)
+app.include_router(fed_sentiment.router)
 # Preserve legacy prefixed routes without exposing duplicate docs.
 app.include_router(auth.router, prefix="/api", include_in_schema=False)
 app.include_router(billing.router, prefix="/api", include_in_schema=False)

@@ -34,6 +34,10 @@ Thumbs.db
 # Cache
 backend/data/cache/
 
+# Large historical price data (downloaded separately, not in repo)
+backend/data/dxy_fomc-intraday/
+backend/data/dxy_intraday/
+
 # Local settings
 .claude/settings.local.json
 .superpowers/

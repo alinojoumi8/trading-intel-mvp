@@ -196,6 +196,8 @@ def _signal_to_dict(signal: TradingSignal, include_stages: bool = False) -> dict
         "signal_summary": signal.signal_summary,
         "key_risks": json.loads(signal.key_risks) if signal.key_risks else [],
         "invalidation_conditions": json.loads(signal.invalidation_conditions) if signal.invalidation_conditions else [],
+        # FSM context snapshot at generation time
+        "fsm_context": json.loads(signal.fsm_context_json) if signal.fsm_context_json else None,
     }
 
     if include_stages:
@@ -249,6 +251,8 @@ def _pipeline_result_to_dict(result: dict) -> dict:
         "signal_summary": stage4.get("signal_summary"),
         "key_risks": stage4.get("key_risks", []),
         "invalidation_conditions": stage4.get("invalidation_conditions", []),
+        # FSM context (Fed sentiment snapshot used during pipeline)
+        "fsm_context": result.get("fsm_context"),
         # Full stage outputs (for debugging/transparency)
         "stage1": stage1,
         "stage2": stage2,

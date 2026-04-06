@@ -192,6 +192,9 @@ class TradingSignal(Base):
     stage3_output = Column(Text, nullable=True)
     stage4_output = Column(Text, nullable=True)
 
+    # Fed Sentiment Module context snapshot at signal generation time
+    fsm_context_json = Column(Text, nullable=True)
+
     # Outcome tracking (filled later when signal resolves)
     outcome = Column(String(20), nullable=True)  # WIN, LOSS, BREAKEVEN, ACTIVE
     outcome_notes = Column(Text, nullable=True)
@@ -277,6 +280,79 @@ class AlertLog(Base):
     acknowledged = Column(Boolean, default=False)
 
     alert_rule = relationship("AlertRule", back_populates="logs")
+
+
+class FedDocument(Base):
+    """Stores Federal Reserve communications with sentiment scores."""
+    __tablename__ = "fed_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_type = Column(String(50), nullable=False, index=True)  # statement | minutes | speech | beige_book | testimony | press_conference
+    document_date = Column(DateTime, nullable=False, index=True)
+    speaker = Column(String(100), nullable=True)       # Chair Powell, Governor Waller, etc.
+    title = Column(String(500), nullable=False)
+    source_url = Column(String(1000), nullable=True)
+    full_text = Column(Text, nullable=True)
+    tier1_score = Column(Float, nullable=True)          # dictionary scorer [-100, +100]
+    tier2_score = Column(Float, nullable=True)          # LLM scorer (Phase 4)
+    blended_score = Column(Float, nullable=True)        # final language score
+    importance_weight = Column(Float, default=1.0)      # document hierarchy weight
+    key_phrases = Column(Text, nullable=True)           # JSON array of notable phrases
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("source_url", name="uq_fed_doc_url"),
+    )
+
+
+class FedSentimentScore(Base):
+    """Stores composite Fed sentiment scores (language + market)."""
+    __tablename__ = "fed_sentiment_scores"
+
+    id = Column(Integer, primary_key=True, index=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    # Component scores
+    language_score = Column(Float, nullable=True)        # [-100, +100]
+    market_score = Column(Float, nullable=True)          # [-100, +100]
+    composite_score = Column(Float, nullable=True)       # [-100, +100]
+
+    # Divergence
+    divergence_score = Column(Float, nullable=True)      # language - market
+    divergence_category = Column(String(50), nullable=True)  # hawkish_surprise | dovish_surprise | etc.
+    divergence_zscore = Column(Float, nullable=True)
+
+    # Fed regime + trading signal
+    fed_regime = Column(String(50), nullable=True)       # aggressive_tightening | neutral_hold | etc.
+    trading_signal = Column(Text, nullable=True)
+    signal_conviction = Column(String(10), nullable=True)    # high | medium | low
+    signal_direction = Column(String(20), nullable=True)     # USD_bullish | USD_bearish | neutral
+
+    # Market component breakdown (for transparency)
+    yield_2y = Column(Float, nullable=True)
+    yield_spread_10y2y = Column(Float, nullable=True)
+    fed_target_rate = Column(Float, nullable=True)
+    yield_2y_30d_change = Column(Float, nullable=True)
+
+    # Meta
+    is_stale = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PhraseTransition(Base):
+    """Tracks key phrase transitions between consecutive FOMC statements."""
+    __tablename__ = "phrase_transitions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    phrase_from = Column(String(500), nullable=False)
+    phrase_to = Column(String(500), nullable=False)
+    doc_from_id = Column(Integer, nullable=True)
+    doc_to_id = Column(Integer, nullable=True)
+    doc_from_date = Column(DateTime, nullable=True)
+    doc_to_date = Column(DateTime, nullable=True)
+    signal_type = Column(String(30), nullable=True)   # hawkish_pivot | dovish_pivot | hawkish_lean | dovish_shift
+    description = Column(String(300), nullable=True)
+    detected_at = Column(DateTime, default=datetime.utcnow)
 
 
 class EconEvent(Base):

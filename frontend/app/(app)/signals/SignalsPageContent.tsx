@@ -8,6 +8,7 @@ import {
   resolveSignal,
   TradingSignal,
   SignalStats,
+  FSMContext,
 } from "@/lib/api";
 
 // ─── Color helpers ──────────────────────────────────────────────────────────
@@ -140,6 +141,14 @@ function SignalModal({
           </div>
         )}
 
+        {/* Fed Sentiment context */}
+        {signal.fsm_context && (
+          <div className="px-6 py-4 border-b border-zinc-800">
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">Fed Sentiment Context</p>
+            <FsmBadge fsm={signal.fsm_context} />
+          </div>
+        )}
+
         {/* Trade Parameters */}
         <div className="px-6 py-4 border-b border-zinc-800">
           <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">Trade Parameters</p>
@@ -237,6 +246,113 @@ function SignalModal({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── FSM Badge ─────────────────────────────────────────────────────────────
+
+function fsmRegimeLabel(regime?: string): string {
+  const map: Record<string, string> = {
+    aggressive_tightening: "Aggressive Tightening",
+    moderate_tightening: "Moderate Tightening",
+    neutral_hold: "Neutral / Hold",
+    moderate_easing: "Moderate Easing",
+    aggressive_easing: "Aggressive Easing",
+    NEUTRAL: "Neutral",
+  };
+  if (!regime) return "—";
+  return map[regime] || regime.replace(/_/g, " ");
+}
+
+function fsmDirectionStyle(dir?: string): string {
+  if (dir === "USD_bullish") return "text-red-400";
+  if (dir === "USD_bearish") return "text-blue-400";
+  return "text-zinc-400";
+}
+
+function fsmDirectionLabel(dir?: string): string {
+  if (dir === "USD_bullish") return "↑ USD Bull";
+  if (dir === "USD_bearish") return "↓ USD Bear";
+  return "→ Neutral";
+}
+
+function fsmDivergenceStyle(cat?: string): string {
+  if (!cat) return "bg-zinc-800 text-zinc-500 border-zinc-700";
+  if (cat.includes("hawkish")) return "bg-red-950/60 text-red-300 border-red-800";
+  if (cat.includes("dovish")) return "bg-blue-950/60 text-blue-300 border-blue-800";
+  return "bg-zinc-800 text-zinc-400 border-zinc-700";
+}
+
+function fsmConvictionStyle(conv?: string): string {
+  switch (conv?.toLowerCase()) {
+    case "high": return "text-green-400";
+    case "moderate":
+    case "medium": return "text-yellow-400";
+    default: return "text-zinc-500";
+  }
+}
+
+function FsmBadge({ fsm }: { fsm?: FSMContext | null }) {
+  if (!fsm || fsm.available === false) {
+    return (
+      <div className="flex items-center gap-2 mb-3 text-xs text-zinc-600">
+        <span className="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 font-semibold">FSM</span>
+        <span>Fed sentiment unavailable</span>
+      </div>
+    );
+  }
+
+  const composite = fsm.composite_score;
+  const compositeLabel =
+    composite !== undefined && composite !== null
+      ? `${composite > 0 ? "+" : ""}${composite.toFixed(0)}`
+      : "—";
+  const compositeColor =
+    composite !== undefined && composite !== null && composite > 10 ? "text-red-400" :
+    composite !== undefined && composite !== null && composite < -10 ? "text-blue-400" : "text-zinc-400";
+
+  const fomcDays = fsm.days_to_next_fomc;
+  const fomcLabel =
+    fomcDays !== null && fomcDays !== undefined
+      ? fomcDays < 1 ? `${Math.round(fomcDays * 24)}h` : `${Math.round(fomcDays)}d`
+      : null;
+
+  return (
+    <div className="flex items-center gap-2 mb-3 flex-wrap text-xs">
+      <span className="px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 font-semibold">FSM</span>
+      <span className="text-zinc-500">Fed:</span>
+      <span className="text-zinc-300">{fsmRegimeLabel(fsm.fed_regime)}</span>
+      <span className="text-zinc-700">·</span>
+      <span className={`px-1.5 py-0.5 rounded border ${fsmDivergenceStyle(fsm.divergence_category)}`}>
+        {fsm.divergence_category?.replace(/_/g, " ") ?? "neutral"}
+      </span>
+      <span className="text-zinc-700">·</span>
+      <span className={fsmDirectionStyle(fsm.signal_direction)}>
+        {fsmDirectionLabel(fsm.signal_direction)}
+      </span>
+      <span className={`text-[10px] ${fsmConvictionStyle(fsm.signal_conviction)}`}>
+        ({fsm.signal_conviction ?? "low"})
+      </span>
+      <span className="text-zinc-700">·</span>
+      <span className="text-zinc-500">Composite:</span>
+      <span className={`font-mono ${compositeColor}`}>{compositeLabel}</span>
+      {fomcLabel && (
+        <>
+          <span className="text-zinc-700">·</span>
+          <span className="text-zinc-500">FOMC in</span>
+          <span className={`font-mono ${
+            fomcDays !== null && fomcDays !== undefined && fomcDays <= 2 ? "text-orange-400" :
+            fomcDays !== null && fomcDays !== undefined && fomcDays <= 7 ? "text-yellow-400" :
+            "text-zinc-400"
+          }`}>{fomcLabel}</span>
+        </>
+      )}
+      {fsm.pre_fomc_window && (
+        <span className="px-1.5 py-0.5 rounded bg-orange-950/60 text-orange-300 border border-orange-800 font-semibold">
+          PRE-FOMC
+        </span>
+      )}
     </div>
   );
 }
@@ -442,6 +558,9 @@ export default function SignalsPageContent() {
               </div>
             ))}
           </div>
+
+          {/* FSM (Fed Sentiment) badge */}
+          <FsmBadge fsm={latestSignal.fsm_context} />
 
           {/* Confidence bar */}
           {latestSignal.signal_confidence != null && (

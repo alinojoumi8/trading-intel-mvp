@@ -266,6 +266,23 @@ export interface SignalStage4 {
   invalidation_conditions: string[];
 }
 
+export interface FSMContext {
+  available?: boolean;
+  fed_regime?: string;
+  composite_score?: number;
+  language_score?: number;
+  market_score?: number;
+  is_pivot_in_progress?: boolean;
+  volatility_multiplier?: number;
+  divergence_category?: string;
+  signal_direction?: string;
+  signal_conviction?: string;
+  position_size_modifier?: number;
+  days_to_next_fomc?: number | null;
+  next_fomc_date?: string | null;
+  pre_fomc_window?: boolean;
+}
+
 export interface TradingSignal {
   id?: number;
   asset: string;
@@ -299,6 +316,8 @@ export interface TradingSignal {
   signal_summary?: string;
   key_risks?: string[];
   invalidation_conditions?: string[];
+  // FSM context snapshot at generation time
+  fsm_context?: FSMContext | null;
   // Full stage outputs (when include_stages=true)
   stage1?: SignalStage1;
   stage2?: SignalStage2;
@@ -933,6 +952,182 @@ export async function askAboutNews(params: {
       conversation: params.conversation ?? [],
     }),
   });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+
+// ─── Fed Sentiment Module ──────────────────────────────────────────────────────
+
+export interface FedComposite {
+  composite_score: number | null;
+  language_score: number | null;
+  market_score: number | null;
+  divergence_score: number | null;
+  divergence_category: string | null;
+  divergence_zscore: number | null;
+  fed_regime: string | null;
+  trading_signal: string | null;
+  signal_conviction: string | null;
+  signal_direction: string | null;
+  yield_2y: number | null;
+  yield_spread_10y2y: number | null;
+  fed_target_rate: number | null;
+  yield_2y_30d_change: number | null;
+  key_phrases: string[];
+  is_stale: boolean;
+  generated_at: string;
+  days_to_next_fomc: number | null;
+  next_fomc_date: string | null;
+}
+
+export interface FedMarketExpectations {
+  market_score: number | null;
+  yield_2y: number | null;
+  yield_spread_10y2y: number | null;
+  fed_target_rate: number | null;
+  yield_2y_30d_change: number | null;
+  next_meeting_bps_priced: number | null;
+  is_stale: boolean;
+  fetched_at: string;
+}
+
+export interface FedDocument {
+  id: number;
+  document_type: string;
+  document_date: string;
+  speaker: string | null;
+  title: string;
+  source_url: string | null;
+  tier1_score: number | null;
+  blended_score: number | null;
+  importance_weight: number;
+  created_at: string;
+}
+
+export interface FedHistoryItem {
+  timestamp: string;
+  composite_score: number | null;
+  language_score: number | null;
+  market_score: number | null;
+  divergence_score: number | null;
+  fed_regime: string | null;
+  signal_direction: string | null;
+}
+
+export async function getFedComposite(): Promise<FedComposite> {
+  return fetchAPI<FedComposite>("/fed-sentiment/composite");
+}
+
+export async function getFedMarketExpectations(): Promise<FedMarketExpectations> {
+  return fetchAPI<FedMarketExpectations>("/fed-sentiment/market");
+}
+
+export async function getFedDocuments(days?: number): Promise<FedDocument[]> {
+  const q = days ? `?days=${days}` : "";
+  return fetchAPI<FedDocument[]>(`/fed-sentiment/documents${q}`);
+}
+
+export async function getFedHistory(days?: number): Promise<FedHistoryItem[]> {
+  const q = days ? `?days=${days}` : "";
+  return fetchAPI<FedHistoryItem[]>(`/fed-sentiment/history${q}`);
+}
+
+export async function syncFedDocuments(): Promise<{ synced_count: number; message: string }> {
+  const res = await fetch(`${API_BASE}/fed-sentiment/sync`, { method: "POST" });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export async function scoreFedTier2(maxDocs?: number): Promise<{ scored_count: number; message: string }> {
+  const q = maxDocs ? `?max_docs=${maxDocs}` : "";
+  const res = await fetch(`${API_BASE}/fed-sentiment/score-tier2${q}`, { method: "POST" });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+export interface PhraseTransitionItem {
+  id: number;
+  phrase_from: string;
+  phrase_to: string;
+  signal_type: string | null;
+  description: string | null;
+  doc_from_date: string | null;
+  doc_to_date: string | null;
+  detected_at: string | null;
+}
+
+export async function getFedPhraseTransitions(limit?: number): Promise<PhraseTransitionItem[]> {
+  const q = limit ? `?limit=${limit}` : "";
+  return fetchAPI<PhraseTransitionItem[]>(`/fed-sentiment/phrase-transitions${q}`);
+}
+
+export async function detectPhraseTransitions(): Promise<{ detected: number; message: string }> {
+  const res = await fetch(`${API_BASE}/fed-sentiment/detect-transitions`, { method: "POST" });
+  if (!res.ok) throw new Error(`API error: ${res.status}`);
+  return res.json();
+}
+
+// ─── FSM Backtest ──────────────────────────────────────────────────────────────
+
+export interface BacktestEvent {
+  date: string;
+  event: string;
+  expected_signal: string;
+  expected_direction: string;
+  expected_dxy_move: string;
+  narrative: string;
+  status: string;
+  tier1_score?: number;
+  tier2_score?: number | null;
+  final_score?: number;
+  predicted_direction?: string;
+  actual_direction?: string | null;
+  direction_correct?: boolean | null;
+  dxy_reaction?: {
+    available?: boolean;
+    source?: string;
+    intraday_pct?: number;
+    next_day_pct?: number;
+    composite_24h_pct?: number;
+    pct_1m?: number;
+    pct_10m?: number;
+    pct_30m?: number;
+    pct_90m?: number;
+    pct_120m?: number;
+  };
+  key_phrases_sample?: string[];
+  press_conference_available?: boolean;
+  press_conference_t1?: number | null;
+  press_conference_t2?: number | null;
+}
+
+export interface BacktestResult {
+  ran_at: string | null;
+  use_tier2: boolean;
+  total_events?: number;
+  events_processed?: number;
+  metrics: {
+    direction_accuracy?: number | null;
+    direction_correct?: number;
+    direction_evaluated?: number;
+    surprise_detection_rate?: number | null;
+    surprise_detected?: number;
+    surprise_total?: number;
+    priced_in_accuracy?: number | null;
+    priced_in_correct?: number;
+    priced_in_total?: number;
+  };
+  events: BacktestEvent[];
+  message?: string;
+}
+
+export async function getFedBacktest(useTier2 = false): Promise<BacktestResult> {
+  return fetchAPI<BacktestResult>(`/fed-sentiment/backtest?use_tier2=${useTier2}`);
+}
+
+export async function runFedBacktest(useTier2 = false): Promise<BacktestResult> {
+  const res = await fetch(`${API_BASE}/fed-sentiment/backtest?use_tier2=${useTier2}`, { method: "POST" });
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
 }

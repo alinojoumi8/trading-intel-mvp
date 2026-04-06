@@ -19,6 +19,7 @@ const navItems = [
     section: "MARKET ANALYSIS",
     items: [
       { label: "Regime", href: "/regime", icon: "activity" },
+      { label: "Fed Sentiment", href: "/fed-sentiment", icon: "fed" },
       { label: "Multi-Timeframe", href: "/multi-timeframe", icon: "layers" },
       { label: "Correlation", href: "/correlation", icon: "grid" },
       { label: "Economic Calendar", href: "/economic-calendar", icon: "calendar" },
@@ -126,6 +127,14 @@ const icons: Record<string, React.ReactNode> = {
   activity: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+    </svg>
+  ),
+  fed: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8v4l3 3" />
+      <path d="M8 12h1" />
+      <path d="M15 12h1" />
     </svg>
   ),
   layers: (
