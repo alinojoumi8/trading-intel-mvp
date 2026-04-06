@@ -1738,6 +1738,249 @@ def get_next_fomc_date(db_session) -> Dict[str, Any]:
     return {"days_to_next_fomc": None, "next_fomc_date": None}
 
 
+def backfill_historical_fed_documents(
+    db_session,
+    start_year: int = 2010,
+    end_year: Optional[int] = None,
+    max_per_year: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Walk the Fed's per-year FOMC historical archive pages and ingest all
+    statements, minutes, and press conferences in date range.
+
+    URL pattern: https://www.federalreserve.gov/monetarypolicy/fomchistorical{year}.htm
+
+    For each year, extracts links to:
+      - /newsevents/pressreleases/monetary{YYYYMMDD}*.htm  (statements)
+      - /monetarypolicy/fomcminutes{YYYYMMDD}.htm          (minutes — full text page)
+      - /monetarypolicy/fomcpresconf{YYYYMMDD}.htm         (press conference landing,
+        triggers PDF transcript ingestion)
+
+    Idempotent: skips URLs already in DB. Tier 1 scoring only (free).
+    Use score_unscored_documents() afterward to add Tier 2 LLM scoring.
+    """
+    from app.models.models import FedDocument
+    from datetime import date as date_cls
+
+    end_year = end_year or datetime.utcnow().year
+    current_year = datetime.utcnow().year
+
+    stats = {
+        "years_processed": [],
+        "statements_added": 0,
+        "minutes_added": 0,
+        "press_conferences_added": 0,
+        "skipped_existing": 0,
+        "errors": 0,
+    }
+
+    # The Fed splits FOMC archives into two locations:
+    #   - fomchistorical{year}.htm  for older years (~5+ years old, e.g. 2010-2020)
+    #   - fomccalendars.htm         for the current rolling 5-year window (2021+)
+    # Fetch the calendar page once and reuse for all recent years
+    calendar_links: List[str] = []
+    try:
+        with httpx.Client(timeout=20, follow_redirects=True) as client:
+            resp = client.get(
+                "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+                headers={"User-Agent": "Mozilla/5.0 (research bot)"},
+            )
+            if resp.status_code == 200:
+                soup_cal = BeautifulSoup(resp.text, "html.parser")
+                calendar_links = [a["href"] for a in soup_cal.find_all("a", href=True)]
+    except Exception as e:
+        logger.warning(f"[FSM] Failed to load fomccalendars.htm: {e}")
+
+    for year in range(start_year, end_year + 1):
+        try:
+            # Pick the right source for this year
+            historical_url = f"https://www.federalreserve.gov/monetarypolicy/fomchistorical{year}.htm"
+            try:
+                with httpx.Client(timeout=20, follow_redirects=True) as client:
+                    resp = client.get(historical_url, headers={"User-Agent": "Mozilla/5.0 (research bot)"})
+                    if resp.status_code == 200:
+                        soup = BeautifulSoup(resp.text, "html.parser")
+                        all_links = [a for a in soup.find_all("a", href=True)]
+                        source = "historical"
+                    else:
+                        # Fall back to calendar page links
+                        all_links = [{"href": h} for h in calendar_links]
+                        source = "calendar"
+            except Exception:
+                all_links = [{"href": h} for h in calendar_links]
+                source = "calendar"
+
+            # Collect unique URLs by category, filtered to this year
+            stmt_urls = set()
+            minutes_urls = set()
+            presconf_dates = set()
+            year_str = str(year)
+
+            for a in all_links:
+                href = a["href"]
+                # Filter URLs by year — extract YYYYMMDD from path and match
+                year_match = re.search(r"(20\d{2})\d{4}", href)
+                if not year_match or year_match.group(1) != year_str:
+                    continue
+
+                if "/newsevents/pressreleases/monetary" in href and href.endswith(".htm"):
+                    full = href if href.startswith("http") else f"https://www.federalreserve.gov{href}"
+                    stmt_urls.add(full)
+                elif "fomcminutes" in href and href.endswith(".htm"):
+                    full = href if href.startswith("http") else f"https://www.federalreserve.gov{href}"
+                    minutes_urls.add(full)
+                elif "fomcpresconf" in href and href.endswith(".htm"):
+                    m = re.search(r"fomcpresconf(\d{8})", href)
+                    if m:
+                        date_str = m.group(1)
+                        presconf_dates.add(date_str)
+
+            year_added = {"statements": 0, "minutes": 0, "press_conferences": 0}
+
+            # Process statements
+            for stmt_url in sorted(stmt_urls):
+                if max_per_year and year_added["statements"] >= max_per_year:
+                    break
+                if _ingest_historical_doc(db_session, stmt_url, expected_year=year, stats=stats):
+                    year_added["statements"] += 1
+
+            # Process minutes
+            for min_url in sorted(minutes_urls):
+                if _ingest_historical_doc(db_session, min_url, expected_year=year, stats=stats, doc_type_hint="minutes"):
+                    year_added["minutes"] += 1
+
+            # Process press conferences (PDFs by date)
+            for date_str in sorted(presconf_dates):
+                try:
+                    pc_dt = datetime.strptime(date_str, "%Y%m%d")
+                except ValueError:
+                    continue
+                # Check if already in DB
+                pdf_url = f"https://www.federalreserve.gov/mediacenter/files/FOMCpresconf{date_str}.pdf"
+                existing = (
+                    db_session.query(FedDocument)
+                    .filter(FedDocument.source_url == pdf_url)
+                    .first()
+                )
+                if existing:
+                    stats["skipped_existing"] += 1
+                    continue
+                processed_pc = []
+                _ingest_press_conference_for_date(db_session, pc_dt, processed_pc)
+                if processed_pc:
+                    year_added["press_conferences"] += 1
+                    stats["press_conferences_added"] += 1
+
+            stats["years_processed"].append({
+                "year": year,
+                "statements": year_added["statements"],
+                "minutes": year_added["minutes"],
+                "press_conferences": year_added["press_conferences"],
+            })
+            logger.info(
+                f"[FSM] Year {year}: +{year_added['statements']} stmts, "
+                f"+{year_added['minutes']} minutes, +{year_added['press_conferences']} press confs"
+            )
+        except Exception as e:
+            logger.exception(f"[FSM] Year {year} backfill failed: {e}")
+            stats["errors"] += 1
+
+    return stats
+
+
+def _ingest_historical_doc(
+    db_session,
+    url: str,
+    expected_year: int,
+    stats: Dict[str, int],
+    doc_type_hint: Optional[str] = None,
+) -> bool:
+    """
+    Fetch a single historical Fed document by URL, classify, score with Tier 1,
+    store in DB. Returns True if newly added, False if skipped.
+    """
+    from app.models.models import FedDocument
+
+    # Skip if already in DB
+    existing = db_session.query(FedDocument).filter(FedDocument.source_url == url).first()
+    if existing:
+        stats["skipped_existing"] += 1
+        return False
+
+    # Extract date from URL
+    date_match = re.search(r"(\d{8})", url)
+    doc_date = None
+    if date_match:
+        try:
+            doc_date = datetime.strptime(date_match.group(1), "%Y%m%d")
+        except ValueError:
+            pass
+
+    if not doc_date or doc_date.year != expected_year:
+        # Date sanity check failed; skip
+        return False
+
+    # Fetch the page
+    full_text = _fetch_page_text(url)
+    if not full_text or len(full_text) < 200:
+        return False
+
+    # Classify
+    title = ""
+    try:
+        with httpx.Client(timeout=15, follow_redirects=True) as client:
+            resp = client.get(url, headers={"User-Agent": "Mozilla/5.0 (research bot)"})
+            soup = BeautifulSoup(resp.text, "html.parser")
+            title_el = soup.find("title")
+            if title_el and title_el.text:
+                title = title_el.text.strip().split("|")[0].strip()
+    except Exception:
+        pass
+
+    if not title:
+        title = f"Fed document {doc_date.date()}"
+
+    # Use doc_type_hint if provided (for minutes URLs that are unambiguous)
+    if doc_type_hint:
+        doc_type = doc_type_hint
+    else:
+        doc_type = _classify_doc_type(title, url)
+
+    # Only keep policy-relevant types
+    if doc_type not in ("statement", "minutes", "press_conference", "projections", "longer_run_goals"):
+        return False
+
+    # Score with Tier 1
+    tier1_score, key_phrases = score_document_tier1(full_text)
+
+    record = {
+        "document_type": doc_type,
+        "document_date": doc_date,
+        "speaker": None,
+        "title": title[:200],
+        "source_url": url,
+        "full_text": full_text[:50000],
+        "tier1_score": tier1_score,
+        "tier2_score": None,
+        "blended_score": tier1_score,
+        "importance_weight": DOCUMENT_WEIGHTS.get(doc_type, 0.40),
+        "key_phrases": json.dumps(key_phrases),
+    }
+    try:
+        doc = FedDocument(**record)
+        db_session.add(doc)
+        db_session.commit()
+        if doc_type == "statement":
+            stats["statements_added"] += 1
+        elif doc_type == "minutes":
+            stats["minutes_added"] += 1
+        return True
+    except Exception as e:
+        db_session.rollback()
+        logger.warning(f"[FSM] Failed to store {url}: {e}")
+        return False
+
+
 def rescore_all_documents_tier1(db_session) -> Dict[str, int]:
     """
     Re-score all FedDocument rows that have full_text using the current

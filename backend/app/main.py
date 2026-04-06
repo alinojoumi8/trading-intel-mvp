@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import Base, engine
-from app.routers import content, instruments, tags, pipeline, news, news_analysis, signals, trade_outcomes, cot_history, regime, multi_timeframe, alerts, correlation, economic_calendar, auth, billing, fed_sentiment
+from app.routers import content, instruments, tags, pipeline, news, news_analysis, signals, trade_outcomes, cot_history, regime, multi_timeframe, alerts, correlation, economic_calendar, auth, billing, fed_sentiment, v3_backtest
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -66,6 +66,7 @@ app.include_router(economic_calendar.router)
 app.include_router(auth.router)
 app.include_router(billing.router)
 app.include_router(fed_sentiment.router)
+app.include_router(v3_backtest.router)
 # Preserve legacy prefixed routes without exposing duplicate docs.
 app.include_router(auth.router, prefix="/api", include_in_schema=False)
 app.include_router(billing.router, prefix="/api", include_in_schema=False)

@@ -37,7 +37,14 @@ backend/data/cache/
 # Large historical price data (downloaded separately, not in repo)
 backend/data/dxy_fomc-intraday/
 backend/data/dxy_intraday/
+backend/data/intraday/
+backend/data/macro_history/
+backend/data/*.csv
+backend/data/*.parquet
 
 # Local settings
 .claude/settings.local.json
 .superpowers/
+
+# Doppler secret backups (contain plaintext secrets — never commit)
+.doppler-backups/

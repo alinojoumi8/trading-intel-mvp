@@ -49,6 +49,7 @@ export default function NewsPageContent() {
   const [selectedItem, setSelectedItem] = useState<NewsItem | null>(null);
   const LIMIT = 30;
   const offsetRef = React.useRef(0);
+  const hasAutoFetched = React.useRef(false);
 
   const loadCategories = useCallback(async () => {
     try {
@@ -86,13 +87,43 @@ export default function NewsPageContent() {
     }
   }, [selectedCategory, filter]);
 
-  useEffect(() => {
-    loadCategories();
-  }, [loadCategories]);
+  const autoFetchNews = useCallback(async () => {
+    if (hasAutoFetched.current) return;
+    hasAutoFetched.current = true;
+    setFetching(true);
+    try {
+      const result = await fetchNews(selectedCategory ?? undefined);
+      setFetchResult(result);
+      // Immediately load fresh results from DB
+      offsetRef.current = 0;
+      const filters: Parameters<typeof getNews>[0] = { limit: LIMIT, offset: 0 };
+      if (selectedCategory) filters.category = selectedCategory;
+      if (filter === "unread") filters.is_read = false;
+      if (filter === "starred") filters.is_starred = true;
+      const data = await getNews(filters);
+      setItems(data.items);
+      setTotal(data.total);
+      offsetRef.current = data.items.length;
+    } catch (err) {
+      console.error("Auto-fetch failed:", err);
+      // Fallback: load from cache
+      loadNews(true);
+    } finally {
+      setFetching(false);
+    }
+  }, [selectedCategory, filter, loadNews]);
 
   useEffect(() => {
-    offsetRef.current = 0;
-    loadNews(true);
+    loadCategories();
+    autoFetchNews();
+  }, [loadCategories, autoFetchNews]);
+
+  useEffect(() => {
+    // Only re-load from DB when category/filter changes after initial auto-fetch
+    if (hasAutoFetched.current) {
+      offsetRef.current = 0;
+      loadNews(true);
+    }
   }, [loadNews]);
 
   const handleRefresh = async () => {

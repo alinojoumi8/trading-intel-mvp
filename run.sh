@@ -14,18 +14,24 @@ PID_FILE="/tmp/trading-intel.pids"
 start() {
   echo "Starting Trading Intelligence Platform..."
 
+  # Check for Doppler and load secrets if available
+  if command -v doppler &> /dev/null && [ -f ".doppler.yaml" ]; then
+    echo "  Loading secrets from Doppler..."
+    eval "$(doppler secrets download --no-file --format env 2>/dev/null | sed 's/^/export /')"
+  fi
+
   # Start backend
   echo "  Starting backend (FastAPI) on port $BACKEND_PORT..."
   cd "$BACKEND_DIR"
   source venv/bin/activate
-  uvicorn app.main:app --host 0.0.0.0 --port $BACKEND_PORT >> /tmp/trading-intel-backend.log 2>&1 &
+  doppler run -- uvicorn app.main:app --host 0.0.0.0 --port $BACKEND_PORT >> /tmp/trading-intel-backend.log 2>&1 &
   BACKEND_PID=$!
   echo "    Backend PID: $BACKEND_PID"
 
   # Start frontend
   echo "  Starting frontend (Next.js) on port $FRONTEND_PORT..."
   cd "$FRONTEND_DIR"
-  npm run dev -- --port $FRONTEND_PORT >> /tmp/trading-intel-frontend.log 2>&1 &
+  doppler run -- npm run dev -- --port $FRONTEND_PORT >> /tmp/trading-intel-frontend.log 2>&1 &
   FRONTEND_PID=$!
   echo "    Frontend PID: $FRONTEND_PID"
 

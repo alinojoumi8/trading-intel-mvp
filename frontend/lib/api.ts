@@ -1068,6 +1068,116 @@ export async function detectPhraseTransitions(): Promise<{ detected: number; mes
   return res.json();
 }
 
+// ─── V3 Backtest ───────────────────────────────────────────────────────────────
+
+export interface V3BacktestRunSummary {
+  run_id: string;
+  total_signals: number;
+  actionable: number;
+  closed: number;
+  wins: number;
+  losses: number;
+  win_rate: number | null;
+  total_pnl_pct: number;
+  started_at: string | null;
+  last_signal_at: string | null;
+}
+
+export interface V3BacktestPerAsset {
+  total_signals: number;
+  actionable: number;
+  wins: number;
+  losses: number;
+  open: number;
+  not_triggered: number;
+  no_trade: number;
+  errors: number;
+  closed: number;
+  win_rate: number | null;
+  avg_r: number | null;
+  total_pnl_pct: number;
+}
+
+export interface V3BacktestRunDetail {
+  run_id: string;
+  total_signals: number;
+  total_closed: number;
+  total_wins: number;
+  portfolio_win_rate: number | null;
+  portfolio_pnl_pct: number;
+  per_asset: Record<string, V3BacktestPerAsset>;
+}
+
+export interface V3BacktestSignal {
+  id: number;
+  asset: string;
+  as_of_date: string;
+  final_signal: string | null;
+  direction: string | null;
+  signal_confidence: number | null;
+  market_regime: string | null;
+  fundamental_bias: string | null;
+  gate_signal: string | null;
+  entry_price: number | null;
+  stop_loss: number | null;
+  target_price: number | null;
+  risk_reward_ratio: number | null;
+  fsm_composite_score: number | null;
+  fsm_divergence_category: string | null;
+  outcome: string | null;
+  entry_triggered: boolean;
+  entry_actual_price: number | null;
+  exit_price: number | null;
+  pnl_pct: number | null;
+  r_multiple: number | null;
+  bars_in_trade: number | null;
+  max_favorable_excursion_pct: number | null;
+  max_adverse_excursion_pct: number | null;
+}
+
+export interface V3EquityCurve {
+  run_id: string;
+  asset: string | null;
+  points: Array<{
+    date: string;
+    asset: string;
+    pnl_pct: number;
+    cumulative_pct: number;
+    drawdown_pct: number;
+    outcome: string;
+  }>;
+  max_drawdown_pct: number;
+  final_pnl_pct: number;
+  trades_count: number;
+}
+
+export async function getV3BacktestRuns(): Promise<V3BacktestRunSummary[]> {
+  return fetchAPI<V3BacktestRunSummary[]>("/v3-backtest/runs");
+}
+
+export async function getV3BacktestRunDetail(runId: string): Promise<V3BacktestRunDetail> {
+  return fetchAPI<V3BacktestRunDetail>(`/v3-backtest/runs/${encodeURIComponent(runId)}`);
+}
+
+export async function getV3BacktestSignals(
+  runId: string,
+  filters?: { asset?: string; outcome?: string; limit?: number }
+): Promise<V3BacktestSignal[]> {
+  const params = new URLSearchParams();
+  if (filters?.asset) params.set("asset", filters.asset);
+  if (filters?.outcome) params.set("outcome", filters.outcome);
+  if (filters?.limit) params.set("limit", String(filters.limit));
+  const qs = params.toString();
+  return fetchAPI<V3BacktestSignal[]>(
+    `/v3-backtest/runs/${encodeURIComponent(runId)}/signals${qs ? "?" + qs : ""}`
+  );
+}
+
+export async function getV3EquityCurve(runId: string, asset?: string): Promise<V3EquityCurve> {
+  const params = asset ? `?asset=${encodeURIComponent(asset)}` : "";
+  return fetchAPI<V3EquityCurve>(`/v3-backtest/runs/${encodeURIComponent(runId)}/equity-curve${params}`);
+}
+
 // ─── FSM Backtest ──────────────────────────────────────────────────────────────
 
 export interface BacktestEvent {

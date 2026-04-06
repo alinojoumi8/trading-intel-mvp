@@ -29,6 +29,7 @@ const navItems = [
     section: "ANALYTICS",
     items: [
       { label: "Performance", href: "/performance", icon: "performance" },
+      { label: "V3 Backtest", href: "/v3-backtest", icon: "performance" },
       { label: "Leaderboard", href: "/leaderboard", icon: "leaderboard" },
       { label: "COT History", href: "/cot", icon: "cot" },
     ],

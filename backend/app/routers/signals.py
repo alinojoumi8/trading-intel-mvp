@@ -237,11 +237,11 @@ def _pipeline_result_to_dict(result: dict) -> dict:
         "technical_alignment": stage3.get("technical_alignment"),
         "gate_reasoning": stage3.get("gate_reasoning"),
         "watch_list_trigger": stage3.get("watch_list_trigger"),
-        # Trade params
-        "entry_price": stage3.get("suggested_entry_price"),
-        "stop_loss": stage3.get("stop_loss_price"),
-        "target_price": stage3.get("target_price"),
-        "risk_reward_ratio": stage3.get("risk_reward_ratio"),
+        # Trade params — prefer Stage 4 corrected prices; fall back to Stage 3
+        "entry_price": stage4.get("entry_price") or stage3.get("suggested_entry_price"),
+        "stop_loss": stage4.get("stop_loss") or stage3.get("stop_loss_price"),
+        "target_price": stage4.get("target") or stage3.get("target_price"),
+        "risk_reward_ratio": stage4.get("risk_reward") or stage3.get("risk_reward_ratio"),
         # Stage 4
         "final_signal": stage4.get("final_signal"),
         "signal_confidence": stage4.get("signal_confidence"),

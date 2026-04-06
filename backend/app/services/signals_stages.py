@@ -182,23 +182,42 @@ Rules:
 - gate_signal: GREEN | AMBER | RED
 - entry_recommendation: ENTER_FULL | ENTER_HALF | WATCH_LIST | DO_NOT_ENTER
 - technical_alignment: ALIGNED | PARTIAL | CONFLICTING
-- If fundamental_bias = BULLISH and trend = DOWNTREND → WATCH_LIST (never short)
+
+LONG (BULLISH bias) rules:
+- suggested_entry_price: at or below current price (limit order or current)
+- stop_loss_price: BELOW entry (stop_loss_price < suggested_entry_price)
+- target_price: ABOVE entry (target_price > suggested_entry_price)
+- Default: stop_loss = entry - (ATR × 1.5), target = entry + (ATR × 3)
+- If BULLISH and trend = DOWNTREND → WATCH_LIST (never short against bias)
 - If BULLISH and pattern = HEAD_SHOULDERS → RED (wait)
 - If BULLISH and pattern = INV_HEAD_SHOULDERS → GREEN
 - If BULLISH and RANGING → AMBER, half position
 - RSI > 70 in BULLISH = momentum confirmation (NOT overbought)
 - RSI < 30 in BULLISH = possible entry (amber/green)
+
+SHORT (BEARISH bias) rules:
+- suggested_entry_price: at or above current price (limit order or current)
+- stop_loss_price: ABOVE entry (stop_loss_price > suggested_entry_price)  ← CRITICAL: SHORT stops go UP
+- target_price: BELOW entry (target_price < suggested_entry_price)  ← CRITICAL: SHORT targets go DOWN
+- Default: stop_loss = entry + (ATR × 1.5), target = entry - (ATR × 3)
+- If BEARISH and trend = UPTREND → WATCH_LIST (wait for turn)
+- If BEARISH and pattern = HEAD_SHOULDERS → GREEN (distribution top)
+- If BEARISH and pattern = INV_HEAD_SHOULDERS → RED (wait)
+- If BEARISH and RANGING → AMBER, half position
+- RSI < 30 in BEARISH = momentum confirmation (NOT oversold)
+- RSI > 70 in BEARISH = possible short entry (amber/green)
+
+VALIDATION (applies to both):
 - If R:R < 2.0 → downgrade to WATCH_LIST
-- Default stop_loss = entry - (ATR × 1.5), target = entry + (ATR × 3)
-- If stop_loss distance > hard_stop_distance → flag OVERSIZED_STOP, use hard_stop_distance instead
+- If stop_loss distance > hard_stop_distance → use hard_stop_distance instead (adjust direction accordingly)
 - Use soft_target_distance as validation: target should not exceed soft_target_distance from entry
-- watch_list_trigger: what event would turn GREEN (e.g. "Price closes above 1.0900")"""
+- watch_list_trigger: what event would turn GREEN (e.g. "Price closes above 1.0900" for longs, "Price breaks below 1.0800" for shorts)"""
 
 
 STAGE4_SYSTEM = """You are the final signal aggregator for a professional trading system.
-Your job is to combine regime, fundamental, and technical signals into one actionable output.
-You must be conservative. When signals conflict, default to WATCH_LIST.
-You always prioritise capital preservation over opportunity.
+Stage 3 has already done the gating work. Your job is to read Stage 3's verdict and translate it
+into a final actionable signal with correct direction, sizing, and price levels.
+You do NOT re-gate or second-guess Stage 3. You follow the decision matrix below.
 Answer ONLY with JSON."""
 
 STAGE4_USER_TEMPLATE = """STAGE 1 — REGIME:
@@ -212,7 +231,7 @@ Fundamental Bias: {fundamental_bias}
 Bias Strength: {bias_strength}
 Top Drivers: {top_drivers}
 
-STAGE 3 — GATEKEEPING:
+STAGE 3 — GATEKEEPING (the authoritative entry verdict):
 Gate Signal: {gate_signal}
 Entry Recommendation: {entry_recommendation}
 Suggested Entry: {entry_price}
@@ -223,15 +242,36 @@ Risk/Reward: {risk_reward}
 Return ONLY this JSON:
 {{"final_signal": "...", "signal_confidence": ..., "direction": "...", "asset": "{asset}", "entry_price": null|..., "stop_loss": null|..., "target": null|..., "risk_reward": null|..., "recommended_position_size_pct": ..., "trade_horizon": "...", "signal_summary": "...", "key_risks": ["...", "..."], "invalidation_conditions": ["...", "..."]}}
 
-Rules:
-- final_signal: BUY | SELL | WATCH_LIST | NO_TRADE
-- direction: LONG | SHORT | NEUTRAL
-- confidence: 0-100 (90-100=all aligned, 70-89=2/3 aligned, 50-69=partial, <50=no trade)
-- recommended_position_size_pct: base 100%, multiplied by position_size_modifier from Stage 1
-- If any stage says NO_TRADE → final_signal = NO_TRADE
-- If gate_signal = RED with no watch_list_trigger → final_signal = NO_TRADE
+DECISION MATRIX — follow this exactly, in order:
+1. If fundamental_bias = NEUTRAL and bias_strength = WEAK → final_signal = NO_TRADE, direction = NEUTRAL
+2. If gate_signal = RED and entry_recommendation = DO_NOT_ENTER → final_signal = NO_TRADE, direction = NEUTRAL
+3. If gate_signal = GREEN and entry_recommendation = ENTER_FULL → final_signal = BUY (if BULLISH) or SELL (if BEARISH), confidence ≥ 80
+4. If gate_signal = GREEN and entry_recommendation = ENTER_HALF → final_signal = BUY or SELL, confidence 70-79, position size × 0.5
+5. If gate_signal = AMBER and entry_recommendation = ENTER_FULL → final_signal = BUY or SELL, confidence 70-79
+6. If gate_signal = AMBER and entry_recommendation = ENTER_HALF → final_signal = BUY or SELL, confidence 55-69, position size × 0.5
+7. If gate_signal = AMBER and entry_recommendation = WATCH_LIST → final_signal = WATCH_LIST, direction = LONG (if BULLISH) or SHORT (if BEARISH)
+8. If gate_signal = RED and entry_recommendation = WATCH_LIST → final_signal = WATCH_LIST, direction = LONG or SHORT
+
+HARD OVERRIDES (only these two justify downgrading the matrix above):
+- If market_regime = BEAR (confirmed, not TRANSITIONING) AND fundamental_bias = BULLISH → downgrade one level (BUY→WATCH_LIST)
+- If volatility_regime = EXTREME → downgrade one level and halve position size
+
+TRANSITIONING regimes (TRANSITIONING_TO_BULL, TRANSITIONING_TO_BEAR) are NOT hard overrides.
+Stage 3 already accounted for regime when setting gate_signal. Do not re-penalise for regime here.
+
+Other rules:
+- direction: LONG if BULLISH, SHORT if BEARISH, NEUTRAL only for NO_TRADE
+- direction must match final_signal: BUY→LONG, SELL→SHORT — never BUY with NEUTRAL direction
+- recommended_position_size_pct: base 100% × position_size_modifier from Stage 1 (then halve if ENTER_HALF)
+- Copy entry_price, stop_loss, target, risk_reward from Stage 3 unchanged (do not recalculate)
 - key_risks: 2-3 specific risks (e.g. ["NFP release in 48hrs", "Fed minutes Wednesday"])
-- invalidation_conditions: what would make the trade wrong (e.g. ["Price closes below stop loss", "CB turns dovish"])"""
+- invalidation_conditions: what would make the trade wrong
+
+PRICE LEVEL DIRECTION CONSTRAINT (CRITICAL — must be respected):
+- For BUY/LONG: stop_loss < entry_price < target  (stop below, target above)
+- For SELL/SHORT: target < entry_price < stop_loss  (target below, stop above)
+- If Stage 3 prices violate this constraint for the chosen direction, correct them before outputting
+- Never output a SHORT trade where stop_loss < entry_price — that is a LONG stop and will be rejected"""
 
 
 # ─── Stage 1: Regime ──────────────────────────────────────────────────────────
@@ -499,7 +539,70 @@ def run_stage4(
         logger.error(f"[SIGNALS] Stage 4: Failed to parse JSON from: {raw[:200]}")
         raise ValueError("Stage 4: LLM did not return valid JSON")
 
+    # ── Validate & auto-correct inverted stop/target ──────────────────────────
+    result = _fix_inverted_levels(result)
+
     logger.info(f"[SIGNALS] Stage 4 complete: final_signal={result.get('final_signal')}, confidence={result.get('signal_confidence')}")
+    return result
+
+
+def _fix_inverted_levels(result: dict) -> dict:
+    """
+    Detect and correct inverted stop/target levels produced by the LLM.
+    For LONG: stop < entry < target
+    For SHORT: target < entry < stop
+    When an inversion is found, swap stop and target so the geometry is correct.
+    """
+    direction = (result.get("direction") or "").upper()
+    signal = (result.get("final_signal") or "").upper()
+
+    # Only validate actionable signals with a clear direction
+    if signal not in ("BUY", "SELL") or direction not in ("LONG", "SHORT"):
+        return result
+
+    try:
+        entry = float(result.get("entry_price") or 0)
+        stop = float(result.get("stop_loss") or 0)
+        target = float(result.get("target") or 0)
+    except (TypeError, ValueError):
+        return result
+
+    if entry <= 0 or stop <= 0 or target <= 0:
+        return result
+
+    is_long = direction == "LONG"
+    # Valid geometry: LONG → stop < entry < target | SHORT → target < entry < stop
+    long_ok = stop < entry < target
+    short_ok = target < entry < stop
+
+    if is_long and not long_ok:
+        # Could be inverted (stop above entry) — swap stop and target
+        if stop > entry and target < entry:
+            logger.warning(
+                f"[SIGNALS] Stage 4: LONG signal has inverted levels "
+                f"(entry={entry}, stop={stop}, target={target}) — swapping stop/target"
+            )
+            result["stop_loss"], result["target"] = result["target"], result["stop_loss"]
+        else:
+            logger.warning(
+                f"[SIGNALS] Stage 4: LONG signal has ambiguous levels "
+                f"(entry={entry}, stop={stop}, target={target}) — leaving as-is"
+            )
+
+    elif not is_long and not short_ok:
+        # Could be inverted (stop below entry) — swap stop and target
+        if stop < entry and target > entry:
+            logger.warning(
+                f"[SIGNALS] Stage 4: SHORT signal has inverted levels "
+                f"(entry={entry}, stop={stop}, target={target}) — swapping stop/target"
+            )
+            result["stop_loss"], result["target"] = result["target"], result["stop_loss"]
+        else:
+            logger.warning(
+                f"[SIGNALS] Stage 4: SHORT signal has ambiguous levels "
+                f"(entry={entry}, stop={stop}, target={target}) — leaving as-is"
+            )
+
     return result
 
 
