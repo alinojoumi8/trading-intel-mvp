@@ -301,11 +301,13 @@ def cmd_status():
     print(f"  Debug: {settings.DEBUG}")
 
 
-def cmd_backfill_mql5(force: bool = False, slug: str = None):
-    """Download ISM/PMI series from MQL5 and save as Parquet."""
-    from app.services.mql5_loader import backfill_mql5_series, backfill_all, MQL5_SERIES
+def cmd_backfill_mql5(force: bool = False, slug: str = None, all_cb: bool = False):
+    """Download ISM/PMI and/or central bank rate series from MQL5 and save as Parquet."""
+    from app.services.mql5_loader import backfill_mql5_series, backfill_all, backfill_all_cb, MQL5_SERIES
     if slug:
         results = [backfill_mql5_series(slug, force=force)]
+    elif all_cb:
+        results = backfill_all_cb(force=force)
     else:
         results = backfill_all(force=force)
     print("\nMQL5 Backfill Results:")
@@ -379,6 +381,7 @@ def main():
     mql5_parser = subparsers.add_parser("backfill-mql5", help="Download ISM/PMI data from MQL5")
     mql5_parser.add_argument("--force", action="store_true", help="Re-download even if Parquet already exists")
     mql5_parser.add_argument("--slug", default=None, help="Download a single slug only (e.g. ism-manufacturing-pmi)")
+    mql5_parser.add_argument("--all-cb", action="store_true", dest="all_cb", help="Download all central bank rate series")
 
     args = parser.parse_args()
 
@@ -425,7 +428,7 @@ def main():
         else:
             sig_parser.print_help()
     elif args.command == "backfill-mql5":
-        cmd_backfill_mql5(force=args.force, slug=args.slug)
+        cmd_backfill_mql5(force=args.force, slug=args.slug, all_cb=args.all_cb)
     else:
         parser.print_help()
 

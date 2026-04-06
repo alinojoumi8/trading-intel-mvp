@@ -34,11 +34,13 @@ class SignalToSimulate:
     direction: Direction
     entry_price: float
     stop_loss: float
-    target_price: float
-    generated_at: datetime  # UTC
+    target_price: float             # T1 at 2R (50% exit)
+    generated_at: datetime          # UTC
     entry_window_hours: int = 24    # How long to wait for entry trigger
     max_hold_days: int = 7          # Max time to hold the trade
     entry_tolerance_pct: float = 0.05  # Treat "near entry" as triggered (0.05 = 5 bps)
+    target_2: Optional[float] = None   # T2 at 3R (30% exit)
+    target_3: Optional[float] = None   # T3 at 4.5R (20% exit)
 
 
 @dataclass
@@ -64,6 +66,10 @@ class SimulationResult:
     risk_distance: Optional[float] = None
     reward_distance: Optional[float] = None
     risk_reward_ratio: Optional[float] = None
+    # Multi-target tracking
+    t1_hit: bool = False
+    t2_hit: bool = False
+    t3_hit: bool = False
     # Diagnostics
     max_favorable_excursion_pct: Optional[float] = None  # Best price reached during trade
     max_adverse_excursion_pct: Optional[float] = None    # Worst price reached during trade
@@ -249,11 +255,28 @@ def simulate_signal(signal: SignalToSimulate) -> SimulationResult:
             notes="Entry triggered but no subsequent bars available",
         )
 
+    # ─── Phase B: Multi-target partial exit simulation ────────────────
+    # Partial exit plan (spec Section 5.2): 50% at T1, 30% at T2, 20% at T3.
+    # After T1 hit, the effective stop moves to entry (breakeven protection).
+    # If stop hits before T1 → full LOSS. After T1 → worst case BREAKEVEN.
+    # Weighted P&L: 0.5 × T1_pct + 0.3 × T2_pct + 0.2 × T3_pct
+
     outcome: Outcome = "OPEN"
     exit_idx = None
     exit_price = None
-    mfe = 0.0  # Max favorable excursion (in % from entry)
-    mae = 0.0  # Max adverse excursion
+    mfe = 0.0
+    mae = 0.0
+
+    t1_hit = False
+    t2_hit = False
+    t3_hit = False
+    t1_exit_price: Optional[float] = None
+    t2_exit_price: Optional[float] = None
+    t3_exit_price: Optional[float] = None
+    stop_after_t1 = entry_price_actual  # Breakeven stop once T1 hit
+
+    # Effective stop: pre-T1 = signal.stop_loss, post-T1 = entry (breakeven)
+    active_stop = signal.stop_loss
 
     for idx, bar in trade_bars.iterrows():
         high = float(bar["high"])
@@ -263,68 +286,81 @@ def simulate_signal(signal: SignalToSimulate) -> SimulationResult:
         if signal.direction == "LONG":
             fav = (high - entry_price_actual) / entry_price_actual * 100
             adv = (low - entry_price_actual) / entry_price_actual * 100
-            if fav > mfe:
-                mfe = fav
-            if adv < mae:
-                mae = adv
-
-            stop_hit = low <= signal.stop_loss
-            target_hit = high >= signal.target_price
-
-            if stop_hit and target_hit:
-                # Conservative: assume stop first
-                outcome = "LOSS"
-                exit_price = signal.stop_loss
-                exit_idx = idx
-                break
-            elif stop_hit:
-                outcome = "LOSS"
-                exit_price = signal.stop_loss
-                exit_idx = idx
-                break
-            elif target_hit:
-                outcome = "WIN"
-                exit_price = signal.target_price
-                exit_idx = idx
-                break
-        else:  # SHORT
+        else:
             fav = (entry_price_actual - low) / entry_price_actual * 100
             adv = (entry_price_actual - high) / entry_price_actual * 100
-            if fav > mfe:
-                mfe = fav
-            if adv < mae:
-                mae = adv
+        if fav > mfe:
+            mfe = fav
+        if adv < mae:
+            mae = adv
 
-            stop_hit = high >= signal.stop_loss
-            target_hit = low <= signal.target_price
+        if signal.direction == "LONG":
+            stop_hit = low <= active_stop
+            t1_trigger = (not t1_hit) and high >= signal.target_price
+            t2_trigger = t1_hit and (not t2_hit) and signal.target_2 and high >= signal.target_2
+            t3_trigger = t2_hit and (not t3_hit) and signal.target_3 and high >= signal.target_3
+        else:  # SHORT
+            stop_hit = high >= active_stop
+            t1_trigger = (not t1_hit) and low <= signal.target_price
+            t2_trigger = t1_hit and (not t2_hit) and signal.target_2 and low <= signal.target_2
+            t3_trigger = t2_hit and (not t3_hit) and signal.target_3 and low <= signal.target_3
 
-            if stop_hit and target_hit:
-                outcome = "LOSS"
-                exit_price = signal.stop_loss
-                exit_idx = idx
-                break
-            elif stop_hit:
-                outcome = "LOSS"
-                exit_price = signal.stop_loss
-                exit_idx = idx
-                break
-            elif target_hit:
-                outcome = "WIN"
-                exit_price = signal.target_price
-                exit_idx = idx
-                break
+        # Check stop first (conservative)
+        if stop_hit and not t1_hit:
+            # Stopped out before T1 — full loss
+            outcome = "LOSS"
+            exit_price = active_stop
+            exit_idx = idx
+            break
+        elif stop_hit and t1_hit:
+            # Stopped at breakeven after T1 — partial WIN (T1 locked in)
+            outcome = "BREAKEVEN"
+            exit_price = active_stop
+            exit_idx = idx
+            break
+
+        # Check targets in order
+        if t3_trigger:
+            t3_hit = True
+            t3_exit_price = signal.target_3
+            outcome = "WIN"
+            exit_price = signal.target_3
+            exit_idx = idx
+            break
+        elif t2_trigger:
+            t2_hit = True
+            t2_exit_price = signal.target_2
+        elif t1_trigger:
+            t1_hit = True
+            t1_exit_price = signal.target_price
+            # Move stop to breakeven after T1
+            active_stop = stop_after_t1
 
     # Trade still open at expiry?
     if exit_idx is None:
         exit_idx = trade_bars.index[-1]
         exit_price = float(trade_bars.iloc[-1]["close"])
-        outcome = "OPEN"
+        if t1_hit:
+            outcome = "WIN"  # At minimum T1 was hit
+        else:
+            outcome = "OPEN"
 
-    # P&L computation
-    if signal.direction == "LONG":
-        pnl_pct = (exit_price - entry_price_actual) / entry_price_actual * 100
+    # ─── Weighted P&L (partial exit model) ───────────────────────────
+    # Compute per-tranche P&L, then weight 50/30/20
+    def _pnl(ep: float, xp: float) -> float:
+        if signal.direction == "LONG":
+            return (xp - ep) / ep * 100
+        return (ep - xp) / ep * 100
+
+    if t1_hit:
+        w1 = _pnl(entry_price_actual, t1_exit_price or signal.target_price)
+        w2 = _pnl(entry_price_actual, t2_exit_price or signal.target_2 or exit_price) if signal.target_2 else _pnl(entry_price_actual, exit_price)
+        w3 = _pnl(entry_price_actual, t3_exit_price or signal.target_3 or exit_price) if signal.target_3 else _pnl(entry_price_actual, exit_price)
+        # Weights: T1=50%, T2=30%, T3=20%
+        pnl_pct = 0.50 * w1 + 0.30 * w2 + 0.20 * w3
     else:
-        pnl_pct = (entry_price_actual - exit_price) / entry_price_actual * 100
+        # No partial exits — standard single exit P&L
+        pnl_pct = _pnl(entry_price_actual, exit_price)
 
     r_multiple = pnl_pct / (risk_distance / entry_price_actual * 100) if risk_distance > 0 else None
 
@@ -347,6 +383,9 @@ def simulate_signal(signal: SignalToSimulate) -> SimulationResult:
         risk_distance=round(risk_distance, 5),
         reward_distance=round(reward_distance, 5),
         risk_reward_ratio=round(rr_ratio, 2) if rr_ratio is not None else None,
+        t1_hit=t1_hit,
+        t2_hit=t2_hit,
+        t3_hit=t3_hit,
         max_favorable_excursion_pct=round(mfe, 3),
         max_adverse_excursion_pct=round(mae, 3),
     )
@@ -402,6 +441,48 @@ def aggregate_metrics(results: List[SimulationResult]) -> Dict[str, Any]:
     # Expectancy per trade (R-multiple based)
     expectancy_r = avg_r if avg_r is not None else None
 
+    # Risk-adjusted metrics (requires ≥ 2 closed trades)
+    sharpe_ratio = None
+    sortino_ratio = None
+    max_drawdown_pct = None
+    recovery_factor = None
+
+    if len(closed) >= 2:
+        returns = [r.pnl_pct for r in closed if r.pnl_pct is not None]
+        n = len(returns)
+        mean_r = sum(returns) / n
+        variance = sum((x - mean_r) ** 2 for x in returns) / n
+        std_r = variance ** 0.5
+
+        # Sharpe — annualised assuming ~252 trading days, risk-free = 0
+        if std_r > 0:
+            sharpe_ratio = round(mean_r / std_r * (252 ** 0.5), 3)
+
+        # Sortino — downside deviation only
+        downside = [x for x in returns if x < 0]
+        if downside:
+            down_variance = sum(x ** 2 for x in downside) / n
+            down_std = down_variance ** 0.5
+            if down_std > 0:
+                sortino_ratio = round(mean_r / down_std * (252 ** 0.5), 3)
+
+        # Max drawdown — peak-to-trough on cumulative P&L
+        cumulative = 0.0
+        peak = 0.0
+        max_dd = 0.0
+        for r in returns:
+            cumulative += r
+            if cumulative > peak:
+                peak = cumulative
+            drawdown = peak - cumulative
+            if drawdown > max_dd:
+                max_dd = drawdown
+        max_drawdown_pct = round(max_dd, 3)
+
+        # Recovery factor — total return / max drawdown
+        if max_dd > 0:
+            recovery_factor = round(total_return_pct / max_dd, 3)
+
     return {
         "total_signals": len(results),
         "triggered": len(triggered),
@@ -419,4 +500,8 @@ def aggregate_metrics(results: List[SimulationResult]) -> Dict[str, Any]:
         "gross_profit_pct": round(gross_profit, 2),
         "gross_loss_pct": round(gross_loss, 2),
         "profit_factor": round(profit_factor, 2) if profit_factor is not None else None,
+        "sharpe_ratio": sharpe_ratio,
+        "sortino_ratio": sortino_ratio,
+        "max_drawdown_pct": max_drawdown_pct,
+        "recovery_factor": recovery_factor,
     }

@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from app.core.database import SessionLocal
-from app.models.models import BacktestSignal
+from app.models.models import BacktestSignal, EconEvent
 from app.services.historical_signal_context import build_context
 from app.services.signals_stages import (
     run_stage1, run_stage2, run_stage3, run_stage4,
@@ -73,6 +73,10 @@ def run_historical_pipeline(asset: str, as_of: datetime) -> Optional[Dict[str, A
     except Exception as e:
         logger.warning(f"[V3-BT] Stage 1 failed: {e}")
         return None
+
+    # Hard stop: SIDELINES regime — no trading
+    if stage1.get("trading_mode") == "SIDELINES":
+        return _make_no_trade(asset, asset_class, stage1, {}, "SIDELINES regime", fsm_context, asset)
 
     # 3. Stage 2 — Macro
     try:
@@ -150,6 +154,8 @@ def _signal_to_simulation(
     entry = stage4.get("entry_price") or stage3.get("suggested_entry_price")
     stop = stage4.get("stop_loss") or stage3.get("stop_loss_price")
     target = stage4.get("target") or stage3.get("target_price")
+    target_2 = stage4.get("target_2") or stage3.get("target_2_price")
+    target_3 = stage4.get("target_3") or stage3.get("target_3_price")
 
     if entry is None or stop is None or target is None:
         return None
@@ -161,9 +167,11 @@ def _signal_to_simulation(
             entry_price=float(entry),
             stop_loss=float(stop),
             target_price=float(target),
+            target_2=float(target_2) if target_2 is not None else None,
+            target_3=float(target_3) if target_3 is not None else None,
             generated_at=as_of,
-            entry_window_hours=72,   # 3 days to wait for entry
-            max_hold_days=14,        # Max 2 weeks in trade
+            entry_window_hours=24,   # 24h limit per spec Section 4.3
+            max_hold_days=7,         # Max 7 days per spec Section 5.4
         )
     except (ValueError, TypeError):
         return None
@@ -193,6 +201,7 @@ def _persist_backtest_signal(
         as_of_date=as_of,
         # Signal output
         final_signal=stage4.get("final_signal"),
+        signal_grade=stage4.get("signal_grade"),
         direction=stage4.get("direction"),
         signal_confidence=stage4.get("signal_confidence"),
         market_regime=stage1.get("market_regime"),
@@ -202,6 +211,8 @@ def _persist_backtest_signal(
         entry_price=stage4.get("entry_price") or (stage3.get("suggested_entry_price") if stage3 else None),
         stop_loss=stage4.get("stop_loss") or (stage3.get("stop_loss_price") if stage3 else None),
         target_price=stage4.get("target") or (stage3.get("target_price") if stage3 else None),
+        target_2_price=stage4.get("target_2") or (stage3.get("target_2_price") if stage3 else None),
+        target_3_price=stage4.get("target_3") or (stage3.get("target_3_price") if stage3 else None),
         risk_reward_ratio=stage4.get("risk_reward") or (stage3.get("risk_reward_ratio") if stage3 else None),
         recommended_position_size_pct=stage4.get("recommended_position_size_pct"),
         # FSM
@@ -220,6 +231,9 @@ def _persist_backtest_signal(
     if sim_result:
         record.outcome = sim_result.outcome
         record.entry_triggered = sim_result.entry_triggered
+        record.t1_hit = sim_result.t1_hit
+        record.t2_hit = sim_result.t2_hit
+        record.t3_hit = sim_result.t3_hit
         record.entry_actual_price = sim_result.entry_actual_price
         record.exit_price = sim_result.exit_price
         if sim_result.entry_time:
@@ -246,6 +260,25 @@ def _persist_backtest_signal(
         logger.warning(f"[V3-BT] Failed to persist signal: {e}")
 
     return record
+
+
+# ─── News Blackout Filter ────────────────────────────────────────────────────
+
+def _is_news_blackout(as_of: datetime, db_session) -> bool:
+    """
+    Returns True if there is a HIGH-impact economic event within ±30 minutes
+    of as_of. Safe no-op if EconEvent table is empty.
+    """
+    window_start = as_of - timedelta(minutes=30)
+    window_end = as_of + timedelta(minutes=30)
+    hit = (
+        db_session.query(EconEvent)
+        .filter(EconEvent.importance == "high")
+        .filter(EconEvent.event_date >= window_start)
+        .filter(EconEvent.event_date <= window_end)
+        .first()
+    )
+    return hit is not None
 
 
 # ─── Date generators ─────────────────────────────────────────────────────────
@@ -368,6 +401,12 @@ def run_v3_backtest(
 
                 logger.info(f"[V3-BT] [{count}/{total_pairs}] {asset} @ {as_of.strftime('%Y-%m-%d')}")
 
+                # News blackout — skip HIGH-impact event window (±30 min)
+                if _is_news_blackout(as_of, db):
+                    _persist_backtest_signal(db, run_id, asset, as_of, None, notes="News blackout")
+                    stats["skipped_existing"] += 1
+                    continue
+
                 try:
                     signal_dict = run_historical_pipeline(asset, as_of)
                     if not signal_dict:
@@ -470,6 +509,32 @@ def get_backtest_results(run_id: str) -> Dict[str, Any]:
         portfolio_win_rate = round(total_wins / total_closed, 3) if total_closed > 0 else None
         portfolio_pnl = round(sum(a["total_pnl_pct"] for a in per_asset.values()), 2)
 
+        # Portfolio-level risk-adjusted metrics
+        all_pnl = [s.pnl_pct for s in signals if s.pnl_pct is not None and s.final_signal in ("BUY", "SELL")]
+        sharpe_ratio = None
+        sortino_ratio = None
+        max_drawdown_pct = None
+        recovery_factor = None
+        if len(all_pnl) >= 2:
+            n = len(all_pnl)
+            mean_r = sum(all_pnl) / n
+            std_r = (sum((x - mean_r) ** 2 for x in all_pnl) / n) ** 0.5
+            if std_r > 0:
+                sharpe_ratio = round(mean_r / std_r * (252 ** 0.5), 3)
+            downside = [x for x in all_pnl if x < 0]
+            if downside:
+                down_std = (sum(x ** 2 for x in downside) / n) ** 0.5
+                if down_std > 0:
+                    sortino_ratio = round(mean_r / down_std * (252 ** 0.5), 3)
+            cumulative = 0.0; peak = 0.0; max_dd = 0.0
+            for r in all_pnl:
+                cumulative += r
+                peak = max(peak, cumulative)
+                max_dd = max(max_dd, peak - cumulative)
+            max_drawdown_pct = round(max_dd, 3)
+            if max_dd > 0:
+                recovery_factor = round(portfolio_pnl / max_dd, 3)
+
         return {
             "run_id": run_id,
             "total_signals": total_signals,
@@ -477,6 +542,10 @@ def get_backtest_results(run_id: str) -> Dict[str, Any]:
             "total_wins": total_wins,
             "portfolio_win_rate": portfolio_win_rate,
             "portfolio_pnl_pct": portfolio_pnl,
+            "sharpe_ratio": sharpe_ratio,
+            "sortino_ratio": sortino_ratio,
+            "max_drawdown_pct": max_drawdown_pct,
+            "recovery_factor": recovery_factor,
             "per_asset": per_asset,
         }
     finally:

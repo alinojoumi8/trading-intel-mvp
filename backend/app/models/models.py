@@ -178,6 +178,7 @@ class TradingSignal(Base):
 
     # Stage 4 — Final output
     final_signal = Column(String(20), nullable=True)
+    signal_grade = Column(String(10), nullable=True)   # A | B | C | WATCH | PASS
     signal_confidence = Column(Integer, nullable=True)
     direction = Column(String(10), nullable=True)
     recommended_position_size_pct = Column(Integer, nullable=True)
@@ -350,6 +351,7 @@ class BacktestSignal(Base):
 
     # Signal output (mirrors TradingSignal)
     final_signal = Column(String(20), nullable=True)  # BUY | SELL | WATCH_LIST | NO_TRADE
+    signal_grade = Column(String(10), nullable=True)   # A | B | C | WATCH | PASS
     direction = Column(String(10), nullable=True)
     signal_confidence = Column(Integer, nullable=True)
     market_regime = Column(String(30), nullable=True)
@@ -357,7 +359,9 @@ class BacktestSignal(Base):
     gate_signal = Column(String(10), nullable=True)
     entry_price = Column(Float, nullable=True)
     stop_loss = Column(Float, nullable=True)
-    target_price = Column(Float, nullable=True)
+    target_price = Column(Float, nullable=True)   # T1 at 2R
+    target_2_price = Column(Float, nullable=True)  # T2 at 3R
+    target_3_price = Column(Float, nullable=True)  # T3 at 4.5R
     risk_reward_ratio = Column(Float, nullable=True)
     recommended_position_size_pct = Column(Float, nullable=True)
 
@@ -367,6 +371,9 @@ class BacktestSignal(Base):
 
     # Outcome (filled by simulator after generation)
     outcome = Column(String(30), nullable=True)  # WIN | LOSS | ENTRY_NOT_TRIGGERED | OPEN | NO_DATA
+    t1_hit = Column(Boolean, default=False)   # T1 (2R) target reached
+    t2_hit = Column(Boolean, default=False)   # T2 (3R) target reached
+    t3_hit = Column(Boolean, default=False)   # T3 (4.5R) target reached
     entry_triggered = Column(Boolean, default=False)
     entry_actual_price = Column(Float, nullable=True)
     exit_price = Column(Float, nullable=True)

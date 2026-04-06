@@ -205,6 +205,72 @@ def build_historical_macro(as_of: datetime, asset: str = "EURUSD") -> Dict[str, 
     result["gdp_growth"] = result["gdp"].get("latest")
     result["cb_inflation_target"] = 2.0
 
+    # FX policy divergence — only for currency pairs (e.g. EURUSD, GBPUSD)
+    asset_upper = asset.upper().replace("=X", "").replace("/", "")
+    if _classify_asset(asset) == "FX" and len(asset_upper) == 6:
+        base_ccy = asset_upper[:3]
+        quote_ccy = asset_upper[3:]
+        base_hist = _get_cb_rate_history(base_ccy, as_of, limit=6)
+        quote_hist = _get_cb_rate_history(quote_ccy, as_of, limit=6)
+        base_rate_row = base_hist[-1] if base_hist else None
+        quote_rate_row = quote_hist[-1] if quote_hist else None
+        base_rate = base_rate_row["value"] if base_rate_row else None
+        quote_rate = quote_rate_row["value"] if quote_rate_row else None
+        base_stance = _classify_cb_stance(base_hist)
+        quote_stance = _classify_cb_stance(quote_hist)
+        rate_diff_bps = round((base_rate - quote_rate) * 100, 1) if (base_rate is not None and quote_rate is not None) else None
+
+        # Rate differential trend: compare current diff vs 3 months ago
+        rate_diff_trend = "STABLE"
+        if base_hist and quote_hist and len(base_hist) >= 2 and len(quote_hist) >= 2:
+            old_base = base_hist[max(0, len(base_hist) - 4)]["value"]
+            old_quote = quote_hist[max(0, len(quote_hist) - 4)]["value"]
+            old_diff = old_base - old_quote
+            new_diff = (base_rate - quote_rate) if (base_rate is not None and quote_rate is not None) else None
+            if new_diff is not None:
+                if new_diff - old_diff > 0.05:
+                    rate_diff_trend = "WIDENING_BASE_FAVOR"
+                elif new_diff - old_diff < -0.05:
+                    rate_diff_trend = "WIDENING_QUOTE_FAVOR"
+                else:
+                    rate_diff_trend = "STABLE"
+
+        # Policy divergence direction
+        _hawkish_stances = {"HAWKISH", "PIVOTING_HAWKISH"}
+        _dovish_stances = {"DOVISH", "PIVOTING_DOVISH"}
+        if base_stance in _hawkish_stances and quote_stance in _dovish_stances:
+            policy_div_dir = "BASE_FAVORED"
+        elif quote_stance in _hawkish_stances and base_stance in _dovish_stances:
+            policy_div_dir = "QUOTE_FAVORED"
+        else:
+            policy_div_dir = "NEUTRAL"
+
+        # Divergence maturity: estimate months since stances diverged (simplified)
+        divergence_maturity = "N/A"
+        if policy_div_dir != "NEUTRAL" and len(base_hist) >= 4 and len(quote_hist) >= 4:
+            # Find oldest consistent divergence reading
+            months_diverged = min(len(base_hist), len(quote_hist))
+            if months_diverged <= 2:
+                divergence_maturity = "EARLY"
+            elif months_diverged <= 8:
+                divergence_maturity = "MID_CYCLE"
+            else:
+                divergence_maturity = "LATE_CYCLE"
+
+        result["base_cb_stance"] = base_stance
+        result["quote_cb_stance"] = quote_stance
+        result["rate_differential_bps"] = rate_diff_bps
+        result["rate_differential_trend"] = rate_diff_trend
+        result["policy_divergence_direction"] = policy_div_dir
+        result["divergence_maturity"] = divergence_maturity
+    else:
+        result["base_cb_stance"] = "N/A"
+        result["quote_cb_stance"] = "N/A"
+        result["rate_differential_bps"] = None
+        result["rate_differential_trend"] = "N/A"
+        result["policy_divergence_direction"] = "N/A"
+        result["divergence_maturity"] = "N/A"
+
     # COT — use most-recent value we have in DB or N/A (full historical COT
     # backfill is a separate task; for the backtest we'll pull from cot_service
     # if available, otherwise N/A)
@@ -215,6 +281,91 @@ def build_historical_macro(as_of: datetime, asset: str = "EURUSD") -> Dict[str, 
     result["asset_class"] = _classify_asset(asset)
 
     return result
+
+
+# FX currency → MQL5 CB slug (None = use FRED FEDFUNDS for USD)
+_FX_CB_SLUG: Dict[str, Optional[str]] = {
+    "EUR": "ecb-interest-rate",
+    "GBP": "boe-interest-rate",
+    "JPY": "boj-interest-rate",
+    "AUD": "rba-interest-rate",
+    "NZD": "rbnz-interest-rate",
+    "CAD": "boc-interest-rate",
+    "CHF": "snb-interest-rate",
+    "USD": None,  # Use FRED FEDFUNDS
+}
+
+
+def _classify_cb_stance(rate_history: list) -> str:
+    """
+    Classify central bank stance from a list of rate history dicts (last 6 obs).
+    Each dict must have a 'value' key (float).
+    Returns: HAWKISH | DOVISH | PIVOTING_HAWKISH | PIVOTING_DOVISH | NEUTRAL
+    """
+    if len(rate_history) < 3:
+        return "NEUTRAL"
+    recent = [h["value"] for h in rate_history[-6:] if h.get("value") is not None]
+    if len(recent) < 3:
+        return "NEUTRAL"
+    if all(recent[i] > recent[i - 1] for i in range(1, len(recent))):
+        return "HAWKISH"
+    if all(recent[i] < recent[i - 1] for i in range(1, len(recent))):
+        return "DOVISH"
+    last3 = recent[-3:]
+    if last3[-1] > last3[0]:
+        return "PIVOTING_HAWKISH"
+    if last3[-1] < last3[0]:
+        return "PIVOTING_DOVISH"
+    return "NEUTRAL"
+
+
+def _get_cb_rate_as_of(currency: str, as_of: datetime) -> Optional[Dict[str, Any]]:
+    """
+    Return most recent central bank rate for a currency as of as_of.
+    USD uses FRED FEDFUNDS; others use MQL5 CB slugs.
+    Returns {"value": float, "slug": str} or None.
+    """
+    from app.services.historical_macro_loader import get_value_as_of
+    from app.services.mql5_loader import get_mql5_value_as_of
+
+    slug = _FX_CB_SLUG.get(currency.upper())
+    if currency.upper() == "USD":
+        row = get_value_as_of("FEDFUNDS", as_of)
+        if row:
+            return {"value": row["value"], "source": "FRED/FEDFUNDS"}
+        return None
+    if slug is None:
+        return None
+    row = get_mql5_value_as_of(slug, as_of)
+    if row:
+        return {"value": row["value"], "source": f"MQL5/{slug}"}
+    return None
+
+
+def _get_cb_rate_history(currency: str, as_of: datetime, limit: int = 6) -> list:
+    """
+    Return list of {value, observation_date} for a currency's CB rate up to as_of.
+    USD uses FRED; others use MQL5 Parquet filtered by realtime_date.
+    """
+    from app.services.historical_macro_loader import get_series_history_as_of
+    from app.services.mql5_loader import _load_cached
+    import pandas as pd
+
+    if currency.upper() == "USD":
+        return get_series_history_as_of("FEDFUNDS", as_of, limit=limit)
+
+    slug = _FX_CB_SLUG.get(currency.upper())
+    if not slug:
+        return []
+    df = _load_cached(slug)
+    if df is None or df.empty:
+        return []
+    if as_of.tzinfo is None:
+        as_of_ts = pd.Timestamp(as_of, tz="UTC")
+    else:
+        as_of_ts = pd.Timestamp(as_of).tz_convert("UTC")
+    filtered = df[df["realtime_date"] <= as_of_ts].tail(limit)
+    return [{"value": float(r["value"]), "observation_date": r["observation_date"]} for _, r in filtered.iterrows()]
 
 
 def _classify_asset(asset: str) -> str:
