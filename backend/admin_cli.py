@@ -301,6 +301,22 @@ def cmd_status():
     print(f"  Debug: {settings.DEBUG}")
 
 
+def cmd_backfill_mql5(force: bool = False, slug: str = None):
+    """Download ISM/PMI series from MQL5 and save as Parquet."""
+    from app.services.mql5_loader import backfill_mql5_series, backfill_all, MQL5_SERIES
+    if slug:
+        results = [backfill_mql5_series(slug, force=force)]
+    else:
+        results = backfill_all(force=force)
+    print("\nMQL5 Backfill Results:")
+    print(f"  {'Slug':<40} {'Status':<10} {'Rows'}")
+    print(f"  {'-'*40} {'-'*10} {'-'*6}")
+    for r in results:
+        print(f"  {r['slug']:<40} {r['status']:<10} {r['rows']}")
+    ok = sum(1 for r in results if r["status"] in ("ok", "skipped"))
+    print(f"\n  {ok}/{len(results)} series ready.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Trading Intel Admin CLI")
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
@@ -359,6 +375,11 @@ def main():
     sig_list_parser.add_argument("--asset", default=None, help="Filter by asset")
     sig_list_parser.add_argument("--limit", type=int, default=10, help="Number to show")
 
+    # backfill-mql5 subcommand
+    mql5_parser = subparsers.add_parser("backfill-mql5", help="Download ISM/PMI data from MQL5")
+    mql5_parser.add_argument("--force", action="store_true", help="Re-download even if Parquet already exists")
+    mql5_parser.add_argument("--slug", default=None, help="Download a single slug only (e.g. ism-manufacturing-pmi)")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -403,6 +424,8 @@ def main():
             cmd_signals_list(asset=args.asset, limit=args.limit)
         else:
             sig_parser.print_help()
+    elif args.command == "backfill-mql5":
+        cmd_backfill_mql5(force=args.force, slug=args.slug)
     else:
         parser.print_help()
 
