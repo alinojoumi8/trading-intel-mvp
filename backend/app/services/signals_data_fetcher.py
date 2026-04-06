@@ -291,8 +291,13 @@ def get_macro_data(asset_class: str = "FX") -> Dict[str, Any]:
     result["economic_quadrant"] = classify_quadrant(gdp_dir, cpi_dir)
 
     # ── Additional indicators (kept as raw values for compatibility) ────
-    result["ism_manufacturing"] = fetch_fred_series("USSLIND", days=90)
-    result["ism_services"] = fetch_fred_series("USSLIND", days=90)
+    from app.services.mql5_loader import get_mql5_value_as_of
+    from datetime import timezone as _tz
+    _now = datetime.now(_tz.utc)
+    _ism_mfg = get_mql5_value_as_of("ism-manufacturing-pmi", _now)
+    _ism_svc = get_mql5_value_as_of("ism-non-manufacturing-pmi", _now)
+    result["ism_manufacturing"] = round(_ism_mfg["value"], 1) if _ism_mfg else fetch_fred_series("USSLIND", days=90)
+    result["ism_services"] = round(_ism_svc["value"], 1) if _ism_svc else fetch_fred_series("USSLIND", days=90)
     result["consumer_confidence"] = fetch_fred_series("UMCSENT", days=90)
     result["surprise_index"] = None
 
