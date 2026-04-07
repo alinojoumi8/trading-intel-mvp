@@ -64,9 +64,9 @@ MQL5_CB_SERIES: Dict[str, str] = {
 
 # Full export URLs for non-US series (country path differs from united-states)
 _MQL5_FULL_URLS: Dict[str, str] = {
-    "ecb-interest-rate": "https://www.mql5.com/en/economic-calendar/euro-zone/ecb-interest-rate/export",
-    "boe-interest-rate": "https://www.mql5.com/en/economic-calendar/united-kingdom/boe-interest-rate/export",
-    "boj-interest-rate": "https://www.mql5.com/en/economic-calendar/japan/boj-interest-rate/export",
+    "ecb-interest-rate": "https://www.mql5.com/en/economic-calendar/european-union/ecb-interest-rate-decision/export",
+    "boe-interest-rate": "https://www.mql5.com/en/economic-calendar/united-kingdom/boe-interest-rate-decision/export",
+    "boj-interest-rate": "https://www.mql5.com/en/economic-calendar/japan/boj-interest-rate-decision/export",
     "rba-interest-rate": "https://www.mql5.com/en/economic-calendar/australia/rba-interest-rate-decision/export",
     "rbnz-interest-rate": "https://www.mql5.com/en/economic-calendar/new-zealand/rbnz-interest-rate-decision/export",
     "boc-interest-rate": "https://www.mql5.com/en/economic-calendar/canada/boc-interest-rate-decision/export",
