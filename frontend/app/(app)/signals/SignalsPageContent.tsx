@@ -73,6 +73,28 @@ function confidenceBar(conf?: number): string {
   return "bg-red-500";
 }
 
+function gradeColor(grade?: string): string {
+  switch (grade) {
+    case "A": return "text-emerald-400";
+    case "B": return "text-green-400";
+    case "C": return "text-yellow-400";
+    case "WATCH": return "text-orange-400";
+    case "PASS": return "text-zinc-500";
+    default: return "text-zinc-500";
+  }
+}
+
+function gradeBg(grade?: string): string {
+  switch (grade) {
+    case "A": return "bg-emerald-900/60 border border-emerald-700 text-emerald-300";
+    case "B": return "bg-green-900/60 border border-green-700 text-green-300";
+    case "C": return "bg-yellow-900/60 border border-yellow-700 text-yellow-300";
+    case "WATCH": return "bg-orange-900/60 border border-orange-700 text-orange-300";
+    case "PASS": return "bg-zinc-800/60 border border-zinc-700 text-zinc-400";
+    default: return "bg-zinc-800/60 border border-zinc-700 text-zinc-500";
+  }
+}
+
 // ─── Stage Card ──────────────────────────────────────────────────────────────
 
 function StageCard({ stage, title, color }: { stage?: object; title: string; color: string }) {
@@ -120,6 +142,11 @@ function SignalModal({
               <span className={`text-lg font-bold ${signalColor(signal.final_signal)}`}>
                 {signal.final_signal}
               </span>
+              {signal.signal_grade && (
+                <span className={`text-sm font-bold px-2 py-0.5 rounded ${gradeBg(signal.signal_grade)}`}>
+                  {signal.signal_grade}
+                </span>
+              )}
               {signal.signal_confidence != null && (
                 <span className={`text-lg font-bold ${confidenceColor(signal.signal_confidence)}`}>
                   {signal.signal_confidence}%
@@ -131,8 +158,22 @@ function SignalModal({
               {signal.id ? ` · ID: ${signal.id}` : ""}
             </p>
           </div>
-          <button onClick={onClose} className="text-zinc-500 hover:text-white text-xl">×</button>
+          <div className="flex items-center gap-3">
+            {signal.id && (
+              <a
+                href={`/signals/${signal.id}`}
+                className="text-xs text-zinc-500 hover:text-zinc-300 border border-zinc-700 hover:border-zinc-500 px-2 py-1 rounded transition-colors"
+                onClick={onClose}
+              >
+                Full page ↗
+              </a>
+            )}
+            <button onClick={onClose} className="text-zinc-500 hover:text-white text-xl">×</button>
+          </div>
         </div>
+
+        {/* Pre-Trade Checklist */}
+        <PreTradeChecklist signal={signal} />
 
         {/* Signal Summary */}
         {signal.signal_summary && (
@@ -160,7 +201,7 @@ function SignalModal({
               ["Target", signal.target_price?.toFixed(5)],
               ["R:R", signal.risk_reward_ratio ? `${signal.risk_reward_ratio}:1` : "N/A"],
               ["Position", signal.recommended_position_size_pct != null ? `${signal.recommended_position_size_pct}%` : "N/A"],
-              ["Horizon", signal.trade_horizon],
+              ["Horizon", signal.trade_horizon ? signal.trade_horizon.replace(/_/g, " ") : "N/A"],
               ["Gate", signal.gate_signal],
             ].map(([label, val]) => (
               <div key={label as string}>
@@ -357,6 +398,83 @@ function FsmBadge({ fsm }: { fsm?: FSMContext | null }) {
   );
 }
 
+// ─── Pre-Trade Checklist ──────────────────────────────────────────────────────
+
+function PreTradeChecklist({ signal }: { signal: TradingSignal }) {
+  const checks: { label: string; pass: boolean | null; note?: string }[] = [
+    {
+      label: "Gate Signal GREEN or AMBER",
+      pass: signal.gate_signal === "GREEN" ? true : signal.gate_signal === "AMBER" ? null : false,
+    },
+    {
+      label: "Fundamental bias confirmed",
+      pass: signal.fundamental_bias === "BULLISH" || signal.fundamental_bias === "BEARISH",
+      note: signal.fundamental_bias ?? "—",
+    },
+    {
+      label: "Signal confidence ≥ 70%",
+      pass: signal.signal_confidence != null ? signal.signal_confidence >= 70 : null,
+      note: signal.signal_confidence != null ? `${signal.signal_confidence}%` : "—",
+    },
+    {
+      label: "Risk:Reward ≥ 2:1",
+      pass: signal.risk_reward_ratio != null ? signal.risk_reward_ratio >= 2 : null,
+      note: signal.risk_reward_ratio != null ? `${signal.risk_reward_ratio}:1` : "—",
+    },
+    {
+      label: "Entry price set",
+      pass: signal.entry_price != null,
+    },
+    {
+      label: "Stop loss set",
+      pass: signal.stop_loss != null,
+    },
+    {
+      label: "Regime not SIDELINES",
+      pass: signal.trading_mode !== "SIDELINES",
+      note: signal.trading_mode ?? "—",
+    },
+    {
+      label: "Signal grade B or better",
+      pass: signal.signal_grade === "A" ? true : signal.signal_grade === "B" ? true : signal.signal_grade === "C" ? null : false,
+      note: signal.signal_grade ?? "—",
+    },
+  ];
+
+  const passed = checks.filter(c => c.pass === true).length;
+  const total = checks.length;
+
+  return (
+    <div className="px-6 py-4 border-b border-zinc-800">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Pre-Trade Checklist</p>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded ${passed >= 6 ? "bg-green-900/50 text-green-400" : passed >= 4 ? "bg-yellow-900/50 text-yellow-400" : "bg-red-900/50 text-red-400"}`}>
+          {passed}/{total} checks
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        {checks.map((c, i) => (
+          <div key={i} className="flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                c.pass === true ? "bg-green-900/50 text-green-400" :
+                c.pass === false ? "bg-red-900/50 text-red-400" :
+                "bg-yellow-900/50 text-yellow-400"
+              }`}>
+                {c.pass === true ? "✓" : c.pass === false ? "✗" : "~"}
+              </span>
+              <span className={c.pass === true ? "text-zinc-300" : c.pass === false ? "text-zinc-500" : "text-zinc-400"}>
+                {c.label}
+              </span>
+            </div>
+            {c.note && <span className="text-zinc-600 font-mono">{c.note}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Content ──────────────────────────────────────────────────────────
 
 export default function SignalsPageContent() {
@@ -529,6 +647,11 @@ export default function SignalsPageContent() {
               <span className={`text-lg font-bold ${signalColor(latestSignal.final_signal)}`}>
                 {latestSignal.final_signal}
               </span>
+              {latestSignal.signal_grade && (
+                <span className={`text-sm font-bold px-2 py-0.5 rounded ${gradeBg(latestSignal.signal_grade)}`}>
+                  {latestSignal.signal_grade}
+                </span>
+              )}
               <span className="text-zinc-500 text-xs">{latestSignal.direction}</span>
               {latestSignal.signal_confidence != null && (
                 <span className={`text-sm font-bold ${confidenceColor(latestSignal.signal_confidence)}`}>
@@ -630,6 +753,11 @@ export default function SignalsPageContent() {
                   <div className="flex items-center gap-3">
                     <span className="text-white font-bold">{sig.asset}</span>
                     <span className={`text-sm font-bold ${signalColor(sig.final_signal)}`}>{sig.final_signal}</span>
+                    {sig.signal_grade && (
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${gradeBg(sig.signal_grade)}`}>
+                        {sig.signal_grade}
+                      </span>
+                    )}
                     <span className="text-zinc-500 text-xs">{sig.direction}</span>
                     {sig.signal_confidence != null && (
                       <span className={`text-xs font-medium ${confidenceColor(sig.signal_confidence)}`}>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ContentItem, getContent, getFeaturedContent } from "@/lib/api";
+import { ContentItem, getContent, getFeaturedContent, getSignals, TradingSignal } from "@/lib/api";
 import { ContentCard } from "@/components/ContentCard";
 import { FilterBar } from "@/components/FilterBar";
 import { SearchBar } from "@/components/SearchBar";
@@ -14,6 +14,7 @@ export default function HomeContent() {
   const [content, setContent] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [signals, setSignals] = useState<TradingSignal[]>([]);
 
   const search = searchParams.get("search") || "";
   const featured = searchParams.get("featured") === "true";
@@ -65,6 +66,10 @@ export default function HomeContent() {
     fetchContent();
   }, [searchParams, featured]);
 
+  useEffect(() => {
+    getSignals({ limit: 3 }).then(data => setSignals(data.items)).catch(() => {});
+  }, []);
+
   return (
     <div className="flex gap-6 px-6 py-6">
       {/* Main content */}
@@ -99,6 +104,93 @@ export default function HomeContent() {
             </div>
           </div>
         </div>
+        {/* Live Macro Regime Panel */}
+        {signals.length > 0 && signals[0].market_regime && (
+          <div className="mb-6 border border-zinc-800 rounded-xl p-4 bg-zinc-900/30">
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-3">Live Macro Regime</p>
+            <div className="flex flex-wrap gap-6">
+              <div>
+                <p className="text-zinc-600 text-[10px] uppercase mb-1">Market Regime</p>
+                <p className={`text-sm font-bold ${signals[0].market_regime === "BULL" ? "text-green-400" : signals[0].market_regime === "BEAR" ? "text-red-400" : "text-yellow-400"}`}>
+                  {signals[0].market_regime}
+                </p>
+              </div>
+              {signals[0].volatility_regime && (
+                <div>
+                  <p className="text-zinc-600 text-[10px] uppercase mb-1">Volatility</p>
+                  <p className="text-sm font-bold text-zinc-300">{signals[0].volatility_regime}</p>
+                </div>
+              )}
+              {signals[0].trading_mode && (
+                <div>
+                  <p className="text-zinc-600 text-[10px] uppercase mb-1">Trading Mode</p>
+                  <p className={`text-sm font-bold ${signals[0].trading_mode === "ACTIVE" ? "text-green-400" : signals[0].trading_mode === "SIDELINES" ? "text-red-400" : "text-yellow-400"}`}>
+                    {signals[0].trading_mode}
+                  </p>
+                </div>
+              )}
+              {signals[0].fundamental_bias && (
+                <div>
+                  <p className="text-zinc-600 text-[10px] uppercase mb-1">Macro Bias</p>
+                  <p className={`text-sm font-bold ${signals[0].fundamental_bias === "BULLISH" ? "text-green-400" : signals[0].fundamental_bias === "BEARISH" ? "text-red-400" : "text-zinc-400"}`}>
+                    {signals[0].fundamental_bias}
+                  </p>
+                </div>
+              )}
+              <div className="ml-auto text-right">
+                <p className="text-zinc-600 text-[10px] uppercase mb-1">Last updated</p>
+                <p className="text-xs text-zinc-500">{signals[0].generated_at ? new Date(signals[0].generated_at).toLocaleDateString() : "—"}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Latest Signals Feed */}
+        {signals.length > 0 && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Latest Signals</p>
+              <a href="/signals" className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">View all →</a>
+            </div>
+            <div className="flex gap-3 flex-wrap">
+              {signals.map(sig => (
+                <a
+                  key={sig.id}
+                  href={`/signals/${sig.id}`}
+                  className={`flex items-center gap-3 border rounded-lg px-4 py-3 hover:bg-zinc-800/50 transition-colors ${
+                    sig.final_signal === "BUY" ? "border-green-800 bg-green-900/20" :
+                    sig.final_signal === "SELL" ? "border-red-800 bg-red-900/20" :
+                    "border-zinc-700 bg-zinc-800/20"
+                  }`}
+                >
+                  <span className="text-white font-bold text-sm">{sig.asset}</span>
+                  <span className={`text-xs font-bold ${sig.final_signal === "BUY" ? "text-green-400" : sig.final_signal === "SELL" ? "text-red-400" : "text-yellow-400"}`}>
+                    {sig.final_signal}
+                  </span>
+                  {sig.signal_grade && (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                      sig.signal_grade === "A" ? "bg-emerald-900/60 border-emerald-700 text-emerald-300" :
+                      sig.signal_grade === "B" ? "bg-green-900/60 border-green-700 text-green-300" :
+                      sig.signal_grade === "C" ? "bg-yellow-900/60 border-yellow-700 text-yellow-300" :
+                      "bg-zinc-800 border-zinc-700 text-zinc-400"
+                    }`}>
+                      {sig.signal_grade}
+                    </span>
+                  )}
+                  {sig.signal_confidence != null && (
+                    <span className={`text-xs ${sig.signal_confidence >= 80 ? "text-green-400" : sig.signal_confidence >= 60 ? "text-yellow-400" : "text-red-400"}`}>
+                      {sig.signal_confidence}%
+                    </span>
+                  )}
+                  <span className={`text-[10px] font-medium ${sig.gate_signal === "GREEN" ? "text-green-400" : sig.gate_signal === "AMBER" ? "text-yellow-400" : "text-red-400"}`}>
+                    ● {sig.gate_signal}
+                  </span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col gap-6 mb-8">
           <SearchBar defaultValue={search} />
           <FilterBar showFeatured />

@@ -254,6 +254,7 @@ export interface SignalStage3 {
 export interface SignalStage4 {
   final_signal: string;
   signal_confidence: number;
+  signal_grade?: string;
   direction: string;
   entry_price: number;
   stop_loss: number;
@@ -310,6 +311,7 @@ export interface TradingSignal {
   // Stage 4
   final_signal?: string;
   signal_confidence?: number;
+  signal_grade?: string;
   direction?: string;
   recommended_position_size_pct?: number;
   trade_horizon?: string;
@@ -370,6 +372,10 @@ export async function generateSignal(asset: string): Promise<TradingSignal> {
     throw new Error(err.detail || `API error: ${res.status}`);
   }
   return res.json();
+}
+
+export async function getSignalById(signalId: number): Promise<TradingSignal> {
+  return fetchAPI<TradingSignal>(`/signals/${signalId}`);
 }
 
 export async function resolveSignal(signalId: number, outcome: "WIN" | "LOSS" | "BREAKEVEN", notes?: string): Promise<void> {
