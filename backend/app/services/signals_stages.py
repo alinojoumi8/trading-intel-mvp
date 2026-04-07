@@ -443,6 +443,7 @@ POLICY DIVERGENCE:
         economic_quadrant=macro_data.get("economic_quadrant", "TRANSITIONAL"),
         # Additional flat fields
         ism_manufacturing=macro_data.get("ism_manufacturing", "N/A"),
+        ism_services=macro_data.get("ism_services", "N/A"),
         consumer_confidence=macro_data.get("consumer_confidence", "N/A"),
         nfp_change=macro_data.get("nfp_change", "N/A"),
         core_pce=macro_data.get("core_pce", "N/A"),
