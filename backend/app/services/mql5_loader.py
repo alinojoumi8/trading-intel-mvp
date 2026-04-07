@@ -51,6 +51,33 @@ MQL5_SERIES: Dict[str, str] = {
     "ism-manufacturing-employment": "ISM Manufacturing Employment",
 }
 
+# Central bank rate slugs — keyed by MQL5 slug, value is human label
+MQL5_CB_SERIES: Dict[str, str] = {
+    "ecb-interest-rate": "ECB Main Refinancing Rate",
+    "boe-interest-rate": "Bank of England Base Rate",
+    "boj-interest-rate": "Bank of Japan Policy Rate",
+    "rba-interest-rate": "RBA Cash Rate",
+    "rbnz-interest-rate": "RBNZ Official Cash Rate",
+    "boc-interest-rate": "Bank of Canada Policy Rate",
+    "snb-interest-rate": "SNB Policy Rate",
+}
+
+# Full export URLs for non-US series (country path differs from united-states)
+_MQL5_FULL_URLS: Dict[str, str] = {
+    "ecb-interest-rate": "https://www.mql5.com/en/economic-calendar/euro-zone/ecb-interest-rate/export",
+    "boe-interest-rate": "https://www.mql5.com/en/economic-calendar/united-kingdom/boe-interest-rate/export",
+    "boj-interest-rate": "https://www.mql5.com/en/economic-calendar/japan/boj-interest-rate/export",
+    "rba-interest-rate": "https://www.mql5.com/en/economic-calendar/australia/rba-interest-rate-decision/export",
+    "rbnz-interest-rate": "https://www.mql5.com/en/economic-calendar/new-zealand/rbnz-interest-rate-decision/export",
+    "boc-interest-rate": "https://www.mql5.com/en/economic-calendar/canada/boc-interest-rate-decision/export",
+    "snb-interest-rate": "https://www.mql5.com/en/economic-calendar/switzerland/snb-interest-rate-decision/export",
+}
+
+
+def _get_url(slug: str) -> str:
+    """Return the correct MQL5 export URL for a slug (US or non-US)."""
+    return _MQL5_FULL_URLS.get(slug, BASE_URL.format(slug=slug))
+
 # Module-level in-memory cache (slug → DataFrame)
 _cache: Dict[str, pd.DataFrame] = {}
 
@@ -85,7 +112,7 @@ def _fetch_tsv(slug: str) -> Optional[pd.DataFrame]:
 
     Returns None on any network or parse failure.
     """
-    url = BASE_URL.format(slug=slug)
+    url = _get_url(slug)
     try:
         resp = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
         resp.raise_for_status()
@@ -159,8 +186,13 @@ def backfill_mql5_series(slug: str, force: bool = False) -> Dict[str, Any]:
 
 
 def backfill_all(force: bool = False) -> List[Dict[str, Any]]:
-    """Backfill all known MQL5 series. Returns a list of result dicts."""
+    """Backfill all known MQL5 US economic series. Returns a list of result dicts."""
     return [backfill_mql5_series(slug, force=force) for slug in MQL5_SERIES]
+
+
+def backfill_all_cb(force: bool = False) -> List[Dict[str, Any]]:
+    """Backfill all central bank rate series from MQL5. Returns a list of result dicts."""
+    return [backfill_mql5_series(slug, force=force) for slug in MQL5_CB_SERIES]
 
 
 def get_mql5_value_as_of(slug: str, as_of: datetime) -> Optional[Dict[str, Any]]:

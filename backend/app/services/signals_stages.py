@@ -130,7 +130,7 @@ COT POSITIONING:
 FED MONETARY POLICY (FSM):{fed_context_block}
 
 Return ONLY this JSON:
-{{"fundamental_bias": "...", "bias_strength": "...", "economic_quadrant": "{economic_quadrant}", "driver_scores": {{"ism_pmi": "...", "consumer_confidence": "...", "employment": "...", "monetary_policy": "...", "inflation": "...", "gdp_trend": "...", "rate_differential": "...", "commodity_exposure": "...", "fiscal_policy": "...", "trade_balance": "..."}}, "top_drivers": ["...", "..."], "fundamental_reasoning": "...", "swing_trade_aligned": true|false, "swing_trade_note": "..."}}
+{{"fundamental_bias": "...", "bias_strength": "...", "economic_quadrant": "{economic_quadrant}", "driver_scores": {{"ism_pmi": "...", "consumer_confidence": "...", "employment": "...", "monetary_policy": "...", "inflation": "...", "gdp_trend": "...", "rate_differential": "...", "commodity_exposure": "...", "fiscal_policy": "...", "trade_balance": "..."}}, "top_drivers": ["...", "..."], "fundamental_reasoning": "...", "swing_trade_aligned": true|false, "swing_trade_note": "...", "relative_value_score": {{"policy_divergence_score": 0, "growth_divergence_score": 0, "rate_differential_score": 0, "composite_score": 0, "divergence_maturity": "N/A"}}}}
 
 Rules:
 - fundamental_bias: BULLISH | BEARISH | NEUTRAL
@@ -143,7 +143,13 @@ Rules:
 - COT extremes (EXTREME_LONG or EXTREME_SHORT) are timing warnings, not directional signals
 - FSM divergence: if language_score ≠ market_score direction → note as a surprise risk in fundamental_reasoning
 - FSM USD_bullish signal + HAWKISH regime → strengthen BEARISH bias on risk assets; USD_bearish → weaken it
-- If FSM conviction is HIGH, weight FSM signal heavily in monetary_policy driver score"""
+- If FSM conviction is HIGH, weight FSM signal heavily in monetary_policy driver score
+- relative_value_score (FX pairs only; set all scores to 0 for non-FX):
+  - policy_divergence_score: -3 (quote more hawkish) to +3 (base more hawkish)
+  - growth_divergence_score: -3 to +3 based on GDP/ISM divergence between base and quote economies
+  - rate_differential_score: -3 to +3 based on rate_differential_bps and trend
+  - composite_score: sum of the three scores (-9 to +9); positive = bullish base currency
+  - divergence_maturity: copy from POLICY DIVERGENCE input (EARLY|MID_CYCLE|LATE_CYCLE|N/A)"""
 
 
 STAGE3_SYSTEM = """You are a professional trader's gatekeeping system.
@@ -177,7 +183,12 @@ VOLATILITY RANGES (HV30 proxy):
 - Soft Target Distance: {soft_target_distance}
 
 Return ONLY this JSON:
-{{"gate_signal": "...", "entry_recommendation": "...", "technical_alignment": "...", "suggested_entry_price": null|..., "stop_loss_price": null|..., "target_price": null|..., "risk_reward_ratio": null|..., "gate_reasoning": "...", "watch_list_trigger": "..."}}
+{{"gate_signal": "...", "entry_recommendation": "...", "technical_alignment": "...", "suggested_entry_price": null|..., "stop_loss_price": null|..., "target_price": null|..., "target_2_price": null|..., "target_3_price": null|..., "risk_reward_ratio": null|..., "gate_reasoning": "...", "watch_list_trigger": "..."}}
+
+- target_price (T1): 2R from entry (risk = |entry - stop|); for LONG: entry + (risk × 2.0), for SHORT: entry - (risk × 2.0)
+- target_2_price (T2): 3R from entry; for LONG: entry + (risk × 3.0), for SHORT: entry - (risk × 3.0)
+- target_3_price (T3): 4.5R stretch; for LONG: entry + (risk × 4.5), for SHORT: entry - (risk × 4.5)
+- risk_reward_ratio: R:R to T1 only (target_price)
 
 Rules:
 - gate_signal: GREEN | AMBER | RED
@@ -237,11 +248,24 @@ Gate Signal: {gate_signal}
 Entry Recommendation: {entry_recommendation}
 Suggested Entry: {entry_price}
 Stop Loss: {stop_loss}
-Target: {target}
+Target T1 (2R): {target}
+Target T2 (3R): {target_2}
+Target T3 (4.5R): {target_3}
 Risk/Reward: {risk_reward}
 
 Return ONLY this JSON:
-{{"final_signal": "...", "signal_confidence": ..., "direction": "...", "asset": "{asset}", "entry_price": null|..., "stop_loss": null|..., "target": null|..., "risk_reward": null|..., "recommended_position_size_pct": ..., "trade_horizon": "...", "signal_summary": "...", "key_risks": ["...", "..."], "invalidation_conditions": ["...", "..."]}}
+{{"final_signal": "...", "signal_grade": "...", "signal_confidence": ..., "direction": "...", "asset": "{asset}", "entry_price": null|..., "stop_loss": null|..., "target": null|..., "target_2": null|..., "target_3": null|..., "risk_reward": null|..., "recommended_position_size_pct": ..., "trade_horizon": "...", "signal_summary": "...", "key_risks": ["...", "..."], "invalidation_conditions": ["...", "..."]}}
+
+SIGNAL GRADE RULES (determine signal_grade after final_signal):
+- A: gate GREEN + strong fundamental bias + quadrant aligned + confidence ≥ 80 → full size
+- B: gate GREEN or AMBER + most drivers aligned + confidence 70-79 → 75% size
+- C: gate AMBER + moderate conviction + confidence 55-69 → 50% size
+- WATCH: setup not ready yet → 0% (on watchlist)
+- PASS: conflicting signals or confidence < 55 → 0% (no trade)
+- If final_signal = NO_TRADE → signal_grade = PASS
+- If final_signal = WATCH_LIST → signal_grade = WATCH
+- Apply grade modifier to recommended_position_size_pct: A=1.0×, B=0.75×, C=0.50×, WATCH/PASS=0×
+  Formula: recommended_position_size_pct = 100 × position_size_modifier × grade_modifier
 
 DECISION MATRIX — follow this exactly, in order:
 1. If fundamental_bias = NEUTRAL and bias_strength = WEAK → final_signal = NO_TRADE, direction = NEUTRAL
@@ -364,7 +388,14 @@ def run_stage2(
 - Quote Currency: {macro_data.get('quote_country', 'N/A')}
 - Rate Differential: {macro_data.get('rate_differential', 'N/A')}%
 - Base Commodity Dep: {macro_data.get('base_commodity_dep', 'N/A')}
-- Quote Commodity Dep: {macro_data.get('quote_commodity_dep', 'N/A')}"""
+- Quote Commodity Dep: {macro_data.get('quote_commodity_dep', 'N/A')}
+POLICY DIVERGENCE:
+- Base CB Stance: {macro_data.get('base_cb_stance', 'N/A')}
+- Quote CB Stance: {macro_data.get('quote_cb_stance', 'N/A')}
+- Rate Differential (bps): {macro_data.get('rate_differential_bps', 'N/A')}
+- Rate Differential Trend: {macro_data.get('rate_differential_trend', 'N/A')}
+- Policy Divergence Direction: {macro_data.get('policy_divergence_direction', 'N/A')}
+- Divergence Maturity: {macro_data.get('divergence_maturity', 'N/A')}"""
     elif macro_data.get("asset_class") == "CRYPTO":
         forex_extra = f"""CRYPTO-SPECIFIC:
 - BTC Price: {macro_data.get('btc_price', 'N/A')}
@@ -524,6 +555,8 @@ def run_stage4(
         entry_price=stage3_out.get("suggested_entry_price", "N/A"),
         stop_loss=stage3_out.get("stop_loss_price", "N/A"),
         target=stage3_out.get("target_price", "N/A"),
+        target_2=stage3_out.get("target_2_price", "N/A"),
+        target_3=stage3_out.get("target_3_price", "N/A"),
         risk_reward=stage3_out.get("risk_reward_ratio", "N/A"),
         asset=asset,
     )

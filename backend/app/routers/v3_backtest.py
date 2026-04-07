@@ -33,6 +33,10 @@ class BacktestRunSummary(BaseModel):
     losses: int
     win_rate: Optional[float]
     total_pnl_pct: float
+    sharpe_ratio: Optional[float] = None
+    sortino_ratio: Optional[float] = None
+    max_drawdown_pct: Optional[float] = None
+    recovery_factor: Optional[float] = None
     started_at: Optional[str]
     last_signal_at: Optional[str]
 
@@ -42,6 +46,7 @@ class BacktestSignalDetail(BaseModel):
     asset: str
     as_of_date: str
     final_signal: Optional[str]
+    signal_grade: Optional[str] = None
     direction: Optional[str]
     signal_confidence: Optional[int]
     market_regime: Optional[str]
