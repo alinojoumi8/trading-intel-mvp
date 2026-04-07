@@ -51,6 +51,9 @@ FRED_SERIES: Dict[str, Dict[str, str]] = {
     # Sentiment / Activity
     "UMCSENT":       {"name": "Consumer Sentiment",          "freq": "M"},
     "USSLIND":       {"name": "Leading Index",               "freq": "M"},
+    "CFNAI":         {"name": "Chicago Fed National Activity Index (ISM Mfg proxy)", "freq": "M"},
+    "IPMAN":         {"name": "Industrial Production: Manufacturing (ISM proxy)",    "freq": "M"},
+    "DGORDER":       {"name": "Durable Goods Orders",        "freq": "M"},
     "RSAFS":         {"name": "Retail Sales",                "freq": "M"},
     # Rates / Markets
     "DFF":           {"name": "Fed Funds Rate (Effective)",  "freq": "D"},

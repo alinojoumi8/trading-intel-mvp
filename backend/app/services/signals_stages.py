@@ -110,7 +110,8 @@ ECONOMIC QUADRANT: {economic_quadrant}
 (EXPANSION=growth↑+inflation↓, REFLATION=growth↑+inflation↑, DISINFLATION=growth↓+inflation↓, STAGFLATION=growth↓+inflation↑)
 
 ADDITIONAL DATA:
-- ISM Manufacturing: {ism_manufacturing}
+- Activity Index (CFNAI / ISM proxy): {ism_manufacturing}
+- Industrial Production Mfg (ISM proxy): {ism_services}
 - Consumer Confidence: {consumer_confidence}
 - NFP Change (monthly): {nfp_change}
 - Core PCE: {core_pce}%

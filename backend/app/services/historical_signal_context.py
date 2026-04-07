@@ -151,11 +151,14 @@ def build_historical_macro(as_of: datetime, asset: str = "EURUSD") -> Dict[str, 
     result["nfp_change"] = round(nfp["value"] - nfp_prior, 1) if nfp and nfp_prior else None
     result["core_pce"] = pce_val["value"] if pce_val else None
 
+    # ISM PMI — MQL5 real data (with CFNAI/IPMAN as fallback)
     from app.services.mql5_loader import get_mql5_value_as_of
     ism_mfg = get_mql5_value_as_of("ism-manufacturing-pmi", as_of)
     ism_svc = get_mql5_value_as_of("ism-non-manufacturing-pmi", as_of)
-    result["ism_manufacturing"] = round(ism_mfg["value"], 1) if ism_mfg else "N/A"
-    result["ism_services"] = round(ism_svc["value"], 1) if ism_svc else "N/A"
+    cfnai_val = get_value_as_of("CFNAI", as_of)
+    ipman_val = get_value_as_of("IPMAN", as_of)
+    result["ism_manufacturing"] = round(ism_mfg["value"], 1) if ism_mfg else (round(cfnai_val["value"], 3) if cfnai_val else None)
+    result["ism_services"] = round(ism_svc["value"], 1) if ism_svc else (round(ipman_val["value"], 2) if ipman_val else None)
     result["surprise_index"] = None
 
     # DXY snapshot
