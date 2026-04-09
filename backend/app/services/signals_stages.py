@@ -301,33 +301,121 @@ PRICE LEVEL DIRECTION CONSTRAINT (CRITICAL — must be respected):
 
 # ─── Stage 1: Regime ──────────────────────────────────────────────────────────
 
+# Mapping of asset → which trade direction is USD-bullish
+# Used by the FSM disagreement gating rule (post-Stage-4)
+_USD_POSITIVE_LONG_ASSETS = {"USDJPY", "USDCAD", "USDCHF", "DXY"}
+_USD_POSITIVE_SHORT_ASSETS = {
+    "EURUSD", "GBPUSD", "AUDUSD", "NZDUSD", "XAUUSD",
+    "BTCUSD", "ETHUSD", "XAGUSD",
+}
+
+
+def _trade_usd_polarity(asset: str, direction: str) -> Optional[str]:
+    """
+    Return 'USD_bullish' / 'USD_bearish' for a (asset, direction) pair, or
+    None if the asset isn't a USD-quoted instrument we know about.
+    """
+    if direction not in ("LONG", "SHORT"):
+        return None
+    if asset in _USD_POSITIVE_LONG_ASSETS:
+        return "USD_bullish" if direction == "LONG" else "USD_bearish"
+    if asset in _USD_POSITIVE_SHORT_ASSETS:
+        return "USD_bullish" if direction == "SHORT" else "USD_bearish"
+    return None
+
+
+def _apply_fsm_disagreement_gate(
+    stage4: Dict[str, Any],
+    fsm: Optional[Dict[str, Any]],
+    asset: str,
+) -> Dict[str, Any]:
+    """
+    Post-Stage-4 gating rule: if FSM has HIGH conviction in a USD direction
+    AND the trade is taking the opposite USD side, downgrade BUY/SELL to
+    WATCH_LIST. The 14% win rate observed on this subset in v3_full_run_001
+    makes these trades worse than coin flips.
+
+    No-op when:
+    - FSM unavailable
+    - FSM signal_conviction is not 'high'
+    - FSM signal_direction is 'neutral' or missing
+    - The asset isn't a USD-quoted pair we recognise
+    - Trade is already NO_TRADE / WATCH_LIST
+    - Trade direction agrees with FSM
+    """
+    if not fsm or not fsm.get("available"):
+        return stage4
+    if fsm.get("signal_conviction") != "high":
+        return stage4
+    fsm_dir = fsm.get("signal_direction")
+    if fsm_dir not in ("USD_bullish", "USD_bearish"):
+        return stage4
+
+    final_signal = stage4.get("final_signal")
+    if final_signal not in ("BUY", "SELL"):
+        return stage4
+
+    direction = stage4.get("direction")
+    trade_polarity = _trade_usd_polarity(asset, direction)
+    if trade_polarity is None:
+        return stage4  # not a USD-quoted asset we map
+
+    if trade_polarity == fsm_dir:
+        return stage4  # aligned — leave alone
+
+    # Disagreement: downgrade
+    logger.info(
+        f"[SIGNALS] FSM disagreement gate fired for {asset}: "
+        f"trade={direction} ({trade_polarity}), FSM=high-conviction {fsm_dir} → WATCH_LIST"
+    )
+    stage4["final_signal"] = "WATCH_LIST"
+    stage4["fsm_disagreement_gate"] = True
+    # Note the override in key_risks for transparency
+    risks = stage4.get("key_risks") or []
+    if isinstance(risks, list):
+        risks.insert(
+            0,
+            f"FSM high-conviction {fsm_dir} disagrees with this {direction} trade — downgraded to WATCH_LIST",
+        )
+        stage4["key_risks"] = risks
+    return stage4
+
+
 def _build_fed_context_block_stage1(fsm: Optional[Dict[str, Any]]) -> str:
-    """Build the FED SENTIMENT block for Stage 1 prompt."""
+    """
+    Build the FED SENTIMENT block for Stage 1 prompt.
+
+    NOTE (2026-04-09): Counterfactual analysis on v3_full_run_001 showed that
+    injecting FSM directional context into Stage 1/2 prompts DEGRADED V3 win
+    rate from ~32% (FSM-neutral subset) to 22% (FSM-high-conviction subset).
+    The LLM was treating FSM as confirmation rather than independent context,
+    biasing trades toward whatever the FSM said. We now emit only structural
+    facts (proximity to FOMC) and never directional bias from this block.
+    The directional FSM signal is still applied via the post-Stage-4 gating
+    rule and the position-size modifier — both of which work in the right
+    direction (filter risk, don't add false confidence).
+    """
     if not fsm or not fsm.get("available"):
         return " Not available"
-    pivot = "YES" if fsm.get("is_pivot_in_progress") else "NO"
-    fomc_line = ""
     days = fsm.get("days_to_next_fomc")
-    if days is not None:
-        fomc_line = f"\n- Days to Next FOMC: {days:.1f}d {'⚠ PRE-FOMC WINDOW' if fsm.get('pre_fomc_window') else ''}"
-    return (
-        f"\n- Fed Regime: {fsm.get('fed_regime', 'N/A')}"
-        f"\n- Composite Score: {fsm.get('composite_score', 'N/A')} (−100=dovish, +100=hawkish)"
-        f"\n- Volatility Multiplier: {fsm.get('volatility_multiplier', 'N/A')}"
-        f"\n- Pivot in Progress: {pivot}"
-        f"{fomc_line}"
-    )
+    if days is None:
+        return " Not available"
+    fomc_line = f"\n- Days to Next FOMC: {days:.1f}d"
+    if fsm.get("pre_fomc_window"):
+        fomc_line += " (PRE-FOMC WINDOW — elevated event risk)"
+    return fomc_line
 
 
 def _build_fed_context_block_stage2(fsm: Optional[Dict[str, Any]]) -> str:
-    """Build the FED MONETARY POLICY block for Stage 2 prompt."""
-    if not fsm or not fsm.get("available"):
-        return " Not available"
-    return (
-        f"\n- Language Score: {fsm.get('language_score', 'N/A')} | Market Score: {fsm.get('market_score', 'N/A')}"
-        f"\n- Divergence: {fsm.get('divergence_category', 'N/A')}"
-        f"\n- USD Signal: {fsm.get('signal_direction', 'N/A')} (conviction: {fsm.get('signal_conviction', 'N/A')})"
-    )
+    """
+    Build the FED MONETARY POLICY block for Stage 2 prompt.
+
+    Same rationale as `_build_fed_context_block_stage1` — directional FSM
+    context degraded V3 detection, so this block is now intentionally empty
+    of any hawkish/dovish/divergence signal. Stage 2 already has its own
+    macro fundamentals (CPI, NFP, yields, etc.) to assess Fed stance.
+    """
+    return " Not available"
 
 
 def run_stage1(regime_data: Dict[str, Any], fsm_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -730,6 +818,11 @@ def run_full_pipeline(asset: str) -> Dict[str, Any]:
 
     # ── Stage 4 ──────────────────────────────────────────────────
     stage4 = run_stage4(stage1, stage2, stage3, asset)
+
+    # ── FSM disagreement gate ─────────────────────────────────────
+    # Downgrades BUY/SELL → WATCH_LIST when high-conviction FSM points the
+    # opposite USD direction (validated against v3_full_run_001 backtest).
+    stage4 = _apply_fsm_disagreement_gate(stage4, fsm_context, asset)
 
     # ── Apply FSM position size modifier (take the more conservative) ──
     if fsm_context and fsm_context.get("available"):

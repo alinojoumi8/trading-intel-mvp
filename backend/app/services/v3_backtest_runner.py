@@ -31,6 +31,7 @@ from app.services.historical_signal_context import build_context
 from app.services.signals_stages import (
     run_stage1, run_stage2, run_stage3, run_stage4,
     _make_no_trade,
+    _apply_fsm_disagreement_gate,
 )
 from app.services.signal_outcome_simulator import (
     SignalToSimulate, simulate_signal,
@@ -106,6 +107,9 @@ def run_historical_pipeline(asset: str, as_of: datetime) -> Optional[Dict[str, A
     except Exception as e:
         logger.warning(f"[V3-BT] Stage 4 failed: {e}")
         return None
+
+    # FSM disagreement gate — downgrade trades that fight high-conviction FSM
+    stage4 = _apply_fsm_disagreement_gate(stage4, fsm_context, asset)
 
     # Apply FSM position size override
     if fsm_context and fsm_context.get("available"):
