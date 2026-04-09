@@ -768,6 +768,7 @@ def run_full_pipeline(asset: str) -> Dict[str, Any]:
         "asset_class": asset_class,
         "ticker_used": ticker,
         "fsm_context": fsm_context,
+        "economic_quadrant": macro_data.get("economic_quadrant"),
         "stage1": stage1,
         "stage2": stage2,
         "stage3": stage3,

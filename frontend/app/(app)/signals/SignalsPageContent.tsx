@@ -73,6 +73,26 @@ function confidenceBar(conf?: number): string {
   return "bg-red-500";
 }
 
+function gradeStyle(grade?: string): string {
+  switch (grade) {
+    case "A": return "bg-green-900/60 text-green-300 border-green-700";
+    case "B": return "bg-blue-900/60 text-blue-300 border-blue-700";
+    case "C": return "bg-yellow-900/60 text-yellow-300 border-yellow-700";
+    case "WATCH": return "bg-zinc-800 text-zinc-400 border-zinc-600";
+    case "PASS": return "bg-zinc-900 text-zinc-600 border-zinc-700";
+    default: return "bg-zinc-800 text-zinc-500 border-zinc-700";
+  }
+}
+
+function quadrantStyle(q?: string): string {
+  if (!q) return "text-zinc-500";
+  if (q.includes("Expansion")) return "text-green-400";
+  if (q.includes("Reflation")) return "text-yellow-400";
+  if (q.includes("Stagflation")) return "text-red-400";
+  if (q.includes("Disinflation")) return "text-blue-400";
+  return "text-zinc-400";
+}
+
 // ─── Stage Card ──────────────────────────────────────────────────────────────
 
 function StageCard({ stage, title, color }: { stage?: object; title: string; color: string }) {
@@ -115,11 +135,16 @@ function SignalModal({
         {/* Header */}
         <div className="flex items-start justify-between p-6 border-b border-zinc-800">
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <span className="text-2xl font-bold text-white">{signal.asset}</span>
               <span className={`text-lg font-bold ${signalColor(signal.final_signal)}`}>
                 {signal.final_signal}
               </span>
+              {signal.signal_grade && (
+                <span className={`px-2 py-0.5 rounded border text-sm font-bold ${gradeStyle(signal.signal_grade)}`}>
+                  Grade {signal.signal_grade}
+                </span>
+              )}
               {signal.signal_confidence != null && (
                 <span className={`text-lg font-bold ${confidenceColor(signal.signal_confidence)}`}>
                   {signal.signal_confidence}%
@@ -157,15 +182,21 @@ function SignalModal({
               ["Direction", signal.direction],
               ["Entry", signal.entry_price?.toFixed(5)],
               ["Stop Loss", signal.stop_loss?.toFixed(5)],
-              ["Target", signal.target_price?.toFixed(5)],
+              ["Target T1", signal.target_price?.toFixed(5)],
+              ["Target T2", signal.target_2_price?.toFixed(5)],
+              ["Target T3", signal.target_3_price?.toFixed(5)],
               ["R:R", signal.risk_reward_ratio ? `${signal.risk_reward_ratio}:1` : "N/A"],
               ["Position", signal.recommended_position_size_pct != null ? `${signal.recommended_position_size_pct}%` : "N/A"],
               ["Horizon", signal.trade_horizon],
+              ["Trade Type", signal.trade_type?.replace(/_/g, " ")],
               ["Gate", signal.gate_signal],
-            ].map(([label, val]) => (
+              ["Quadrant", signal.macro_quadrant],
+            ].filter(([, val]) => val != null && val !== "").map(([label, val]) => (
               <div key={label as string}>
                 <p className="text-zinc-600 text-xs mb-1">{label}</p>
-                <p className="text-white text-sm font-mono">{val ?? "N/A"}</p>
+                <p className={`text-sm font-mono ${
+                  label === "Quadrant" ? quadrantStyle(val as string) : "text-white"
+                }`}>{val ?? "N/A"}</p>
               </div>
             ))}
           </div>
@@ -529,6 +560,11 @@ export default function SignalsPageContent() {
               <span className={`text-lg font-bold ${signalColor(latestSignal.final_signal)}`}>
                 {latestSignal.final_signal}
               </span>
+              {latestSignal.signal_grade && (
+                <span className={`px-2 py-0.5 rounded border text-xs font-bold ${gradeStyle(latestSignal.signal_grade)}`}>
+                  Grade {latestSignal.signal_grade}
+                </span>
+              )}
               <span className="text-zinc-500 text-xs">{latestSignal.direction}</span>
               {latestSignal.signal_confidence != null && (
                 <span className={`text-sm font-bold ${confidenceColor(latestSignal.signal_confidence)}`}>
@@ -630,6 +666,11 @@ export default function SignalsPageContent() {
                   <div className="flex items-center gap-3">
                     <span className="text-white font-bold">{sig.asset}</span>
                     <span className={`text-sm font-bold ${signalColor(sig.final_signal)}`}>{sig.final_signal}</span>
+                    {sig.signal_grade && (
+                      <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${gradeStyle(sig.signal_grade)}`}>
+                        {sig.signal_grade}
+                      </span>
+                    )}
                     <span className="text-zinc-500 text-xs">{sig.direction}</span>
                     {sig.signal_confidence != null && (
                       <span className={`text-xs font-medium ${confidenceColor(sig.signal_confidence)}`}>
@@ -657,8 +698,10 @@ export default function SignalsPageContent() {
                 <div className="flex gap-4 text-xs text-zinc-500">
                   <span>Regime: <span className={regimeColor(sig.market_regime)}>{sig.market_regime}</span></span>
                   <span>Bias: <span className={sig.fundamental_bias === "BULLISH" ? "text-green-400" : sig.fundamental_bias === "BEARISH" ? "text-red-400" : "text-zinc-400"}>{sig.fundamental_bias}</span></span>
+                  {sig.macro_quadrant && <span>Quadrant: <span className={quadrantStyle(sig.macro_quadrant)}>{sig.macro_quadrant}</span></span>}
                   <span>R:R: <span className="text-zinc-300 font-mono">{sig.risk_reward_ratio ? `${sig.risk_reward_ratio}:1` : "—"}</span></span>
                   {sig.entry_price && <span>Entry: <span className="text-zinc-300 font-mono">{sig.entry_price.toFixed(5)}</span></span>}
+                  {sig.trade_type && <span className="text-purple-400">{sig.trade_type.replace(/_/g, " ")}</span>}
                 </div>
               </button>
             ))}

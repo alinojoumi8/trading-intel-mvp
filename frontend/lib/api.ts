@@ -117,6 +117,20 @@ export async function getFeaturedContent(): Promise<ContentItem[]> {
   return normalizeContentItems(raw);
 }
 
+// Trigger the full daily content generation pipeline (briefings + setups + roundup + contrarian)
+export async function runFullPipeline(): Promise<{ total_count: number; message: string }> {
+  const adminKey = process.env.NEXT_PUBLIC_ADMIN_API_KEY;
+  const headers: Record<string, string> = {};
+  if (adminKey) headers["X-Admin-Key"] = adminKey;
+  const res = await fetch(`${API_BASE}/admin/generate/full`, { method: "POST", headers });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Pipeline failed: ${res.status} ${body}`);
+  }
+  const data = await res.json();
+  return { total_count: data.total_count ?? 0, message: data.message ?? "Pipeline completed" };
+}
+
 // ─── Instruments ─────────────────────────────────────────────────────────────
 
 export async function getInstruments(): Promise<Instrument[]> {
@@ -309,13 +323,18 @@ export interface TradingSignal {
   risk_reward_ratio?: number;
   // Stage 4
   final_signal?: string;
+  signal_grade?: string;
   signal_confidence?: number;
   direction?: string;
   recommended_position_size_pct?: number;
   trade_horizon?: string;
+  trade_type?: string;
   signal_summary?: string;
   key_risks?: string[];
   invalidation_conditions?: string[];
+  target_2_price?: number;
+  target_3_price?: number;
+  macro_quadrant?: string;
   // FSM context snapshot at generation time
   fsm_context?: FSMContext | null;
   // Full stage outputs (when include_stages=true)

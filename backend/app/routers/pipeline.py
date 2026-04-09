@@ -77,13 +77,30 @@ class FullPipelineResponse(BaseModel):
 
 
 def _serialize_item(item) -> dict:
-    """Serialize a ContentItem model to a dict for JSON response."""
+    """Serialize a ContentItem model to a dict for JSON response.
+
+    The pipeline services close their DB session before returning, so the
+    `item.instrument` relationship cannot be lazy-loaded here. Re-query the
+    instrument symbol by id in a fresh session instead.
+    """
+    from app.core.database import SessionLocal
+    from app.models.models import Instrument
+
+    instrument_symbol = None
+    if item.instrument_id:
+        db = SessionLocal()
+        try:
+            inst = db.query(Instrument).filter(Instrument.id == item.instrument_id).first()
+            instrument_symbol = inst.symbol if inst else None
+        finally:
+            db.close()
+
     return {
         "id": item.id,
         "title": item.title,
         "content_type": item.content_type.value if hasattr(item.content_type, "value") else str(item.content_type),
         "direction": item.direction.value if item.direction else None,
-        "instrument": item.instrument.symbol if item.instrument else None,
+        "instrument": instrument_symbol,
         "rationale": item.rationale,
         "confidence": item.confidence.value if item.confidence else None,
         "timeframe": item.timeframe.value if item.timeframe else None,

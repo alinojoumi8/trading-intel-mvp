@@ -217,7 +217,7 @@ function RegimeHistoryChart({ history }: { history: RegimeItem["regime_history"]
 
 // ─── Main Content ──────────────────────────────────────────────────────────
 
-const ALL_INSTRUMENTS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "NZDUSD", "XAUUSD"];
+const ALL_INSTRUMENTS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "NZDUSD", "XAUUSD", "BTCUSD", "ETHUSD", "SPY"];
 
 export default function RegimePageContent() {
   const [data, setData] = useState<RegimeResponse | null>(null);

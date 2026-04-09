@@ -180,6 +180,9 @@ def get_documents(
         query = query.filter(FedDocument.document_type == doc_type)
 
     docs = query.limit(50).all()
+    def _round(v):
+        return round(v, 1) if v is not None else None
+
     return [
         FedDocumentResponse(
             id=d.id,
@@ -188,8 +191,8 @@ def get_documents(
             speaker=d.speaker,
             title=d.title,
             source_url=d.source_url,
-            tier1_score=d.tier1_score,
-            blended_score=d.blended_score,
+            tier1_score=_round(d.tier1_score),
+            blended_score=_round(d.blended_score),
             importance_weight=d.importance_weight or 1.0,
             created_at=d.created_at.isoformat() if d.created_at else "",
         )

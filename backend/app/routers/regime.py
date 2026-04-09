@@ -40,7 +40,7 @@ class RegimeResponse(BaseModel):
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-TRACKED_INSTRUMENTS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "NZDUSD", "XAUUSD"]
+TRACKED_INSTRUMENTS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "NZDUSD", "XAUUSD", "BTCUSD", "ETHUSD", "SPY"]
 
 # Map trend_direction from calculate_technicals to regime format
 def _map_trend(raw_trend: str) -> str:

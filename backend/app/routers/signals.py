@@ -189,6 +189,7 @@ def _signal_to_dict(signal: TradingSignal, include_stages: bool = False) -> dict
         "risk_reward_ratio": signal.risk_reward_ratio,
         # Stage 4
         "final_signal": signal.final_signal,
+        "signal_grade": signal.signal_grade,
         "signal_confidence": signal.signal_confidence,
         "direction": signal.direction,
         "recommended_position_size_pct": signal.recommended_position_size_pct,
@@ -199,6 +200,14 @@ def _signal_to_dict(signal: TradingSignal, include_stages: bool = False) -> dict
         # FSM context snapshot at generation time
         "fsm_context": json.loads(signal.fsm_context_json) if signal.fsm_context_json else None,
     }
+
+    # Pull extra fields from raw stage JSON blobs (no extra DB columns needed)
+    _s4 = json.loads(signal.stage4_output) if signal.stage4_output else {}
+    _s2 = json.loads(signal.stage2_output) if signal.stage2_output else {}
+    result["trade_type"] = _s4.get("trade_type")
+    result["target_2_price"] = _s4.get("target_2")
+    result["target_3_price"] = _s4.get("target_3")
+    result["macro_quadrant"] = _s2.get("macro_quadrant")
 
     if include_stages:
         result["stage1_output"] = json.loads(signal.stage1_output) if signal.stage1_output else None
@@ -244,13 +253,20 @@ def _pipeline_result_to_dict(result: dict) -> dict:
         "risk_reward_ratio": stage4.get("risk_reward") or stage3.get("risk_reward_ratio"),
         # Stage 4
         "final_signal": stage4.get("final_signal"),
+        "signal_grade": stage4.get("signal_grade"),
         "signal_confidence": stage4.get("signal_confidence"),
         "direction": stage4.get("direction"),
         "recommended_position_size_pct": stage4.get("recommended_position_size_pct"),
         "trade_horizon": stage4.get("trade_horizon"),
+        "trade_type": stage4.get("trade_type"),
         "signal_summary": stage4.get("signal_summary"),
         "key_risks": stage4.get("key_risks", []),
         "invalidation_conditions": stage4.get("invalidation_conditions", []),
+        # Multi-target prices
+        "target_2_price": stage4.get("target_2"),
+        "target_3_price": stage4.get("target_3"),
+        # Macro context
+        "macro_quadrant": result.get("economic_quadrant") or stage2.get("macro_quadrant"),
         # FSM context (Fed sentiment snapshot used during pipeline)
         "fsm_context": result.get("fsm_context"),
         # Full stage outputs (for debugging/transparency)
