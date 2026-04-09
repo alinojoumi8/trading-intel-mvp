@@ -1211,6 +1211,16 @@ export interface BacktestEvent {
   tier2_score?: number | null;
   final_score?: number;
   predicted_direction?: string;
+  raw_predicted_direction?: string;
+  priced_in_detector?: {
+    available: boolean;
+    pre_move_bps?: number;
+    post_move_bps?: number;
+    ratio?: number | null;
+    category?: "priced_in" | "surprise" | "partial" | "no_movement";
+    same_direction?: boolean;
+    reason?: string;
+  };
   actual_direction?: string | null;
   direction_correct?: boolean | null;
   dxy_reaction?: {
@@ -1240,6 +1250,11 @@ export interface BacktestResult {
     direction_accuracy?: number | null;
     direction_correct?: number;
     direction_evaluated?: number;
+    direction_accuracy_filtered?: number | null;
+    direction_correct_filtered?: number;
+    direction_evaluated_filtered?: number;
+    detector_flagged_priced_in?: number;
+    detector_flagged_surprise?: number;
     surprise_detection_rate?: number | null;
     surprise_detected?: number;
     surprise_total?: number;

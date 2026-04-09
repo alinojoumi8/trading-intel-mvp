@@ -21,6 +21,7 @@ from app.services.fed_sentiment_service import (
     score_document_tier2,
     _fetch_press_conference_pdf,
 )
+from app.services.historical_macro_loader import get_value_as_of
 
 logger = logging.getLogger(__name__)
 # Suppress yfinance noise
@@ -241,6 +242,76 @@ def _score_to_direction(score: float, threshold: float = 5.0) -> str:
     return "neutral"
 
 
+def _compute_priced_in_score(event_date: str) -> Dict[str, Any]:
+    """
+    Estimate how much of the FOMC outcome was already priced into the 2Y yield
+    BEFORE the meeting. Compares the 30-day pre-meeting move to the 5-day
+    post-meeting move on DGS2.
+
+    priced_in_ratio = |pre_move| / (|pre_move| + |post_move|)
+
+    Interpretation:
+    - ratio > 0.70  →  PRICED_IN (most of the move happened before the meeting)
+    - ratio 0.40-0.70 → PARTIAL (some pre-positioning, real reaction at meeting)
+    - ratio < 0.40  → SURPRISE (almost all the move happened AT the meeting)
+
+    Returns dict with: pre_move_bps, post_move_bps, ratio, category, available
+    """
+    try:
+        meeting_dt = datetime.strptime(event_date, "%Y-%m-%d")
+        pre_dt = meeting_dt - timedelta(days=30)
+        post_dt = meeting_dt + timedelta(days=5)
+
+        pre_val = get_value_as_of("DGS2", pre_dt)
+        meeting_val = get_value_as_of("DGS2", meeting_dt)
+        # For post_val, we need the value AS OF post_dt — but get_value_as_of
+        # returns latest known on that date. For PIT correctness in backtesting
+        # we use the value released by the post_dt date (which IS the +5d value).
+        post_val = get_value_as_of("DGS2", post_dt)
+
+        if not (pre_val and meeting_val and post_val):
+            return {"available": False, "reason": "insufficient DGS2 data"}
+
+        # 2Y yield in % → convert to bps for clarity
+        pre_move_bps = round((meeting_val["value"] - pre_val["value"]) * 100, 1)
+        post_move_bps = round((post_val["value"] - meeting_val["value"]) * 100, 1)
+
+        total_abs = abs(pre_move_bps) + abs(post_move_bps)
+        if total_abs < 5.0:
+            # Both moves tiny — call it neutral, not priced-in
+            return {
+                "available": True,
+                "pre_move_bps": pre_move_bps,
+                "post_move_bps": post_move_bps,
+                "ratio": None,
+                "category": "no_movement",
+            }
+
+        ratio = abs(pre_move_bps) / total_abs
+
+        if ratio > 0.70:
+            category = "priced_in"
+        elif ratio < 0.40:
+            category = "surprise"
+        else:
+            category = "partial"
+
+        # Direction agreement: did pre and post move the same way?
+        same_direction = (pre_move_bps > 0) == (post_move_bps > 0) if post_move_bps != 0 else True
+
+        return {
+            "available": True,
+            "pre_move_bps": pre_move_bps,
+            "post_move_bps": post_move_bps,
+            "ratio": round(ratio, 3),
+            "category": category,
+            "same_direction": same_direction,
+        }
+    except Exception as e:
+        logger.warning(f"[BACKTEST] Priced-in computation failed for {event_date}: {e}")
+        return {"available": False, "reason": str(e)}
+
+
 def _dxy_move_to_direction(pct_move: float, threshold: float = 0.10) -> str:
     """
     Convert a DXY % move to actual USD direction.
@@ -278,6 +349,12 @@ def run_backtest(use_tier2: bool = False, max_events: Optional[int] = None) -> D
     surprise_total = 0
     priced_in_correct = 0
     priced_in_total = 0
+    # Filtered metrics: events that were NOT already priced in (real surprise events)
+    direction_correct_filtered = 0
+    direction_evaluated_filtered = 0
+    # How many events did the detector flag as priced-in
+    detector_flagged_priced_in = 0
+    detector_flagged_surprise = 0
 
     for event in events:
         event_date = event.get("actual_date") or event["date"]
@@ -356,8 +433,23 @@ def run_backtest(use_tier2: bool = False, max_events: Optional[int] = None) -> D
         # 4. Fetch DXY reaction
         dxy = _fetch_dxy_reaction(event_date)
 
+        # 4b. Compute the priced-in detector (uses 2Y yield pre/post moves)
+        priced_in = _compute_priced_in_score(event_date)
+
         # 5. Compute predicted vs actual direction
-        predicted_direction = _score_to_direction(final_score)
+        raw_predicted_direction = _score_to_direction(final_score)
+        # If the meeting was already priced in by 2Y yield action, override
+        # the language-based prediction to neutral. This is the core insight:
+        # language scoring measures the words, not the surprise.
+        if priced_in.get("available") and priced_in.get("category") == "priced_in":
+            predicted_direction = "neutral"
+            detector_flagged_priced_in += 1
+        elif priced_in.get("available") and priced_in.get("category") == "surprise":
+            predicted_direction = raw_predicted_direction
+            detector_flagged_surprise += 1
+        else:
+            predicted_direction = raw_predicted_direction
+
         actual_direction = None
         is_correct = None
 
@@ -366,12 +458,19 @@ def run_backtest(use_tier2: bool = False, max_events: Optional[int] = None) -> D
             direction_evaluated += 1
 
             expected = event["expected_direction"]
-            # Direction is correct if predicted matches actual (regardless of expected)
             if predicted_direction == actual_direction:
                 direction_correct += 1
                 is_correct = True
             else:
                 is_correct = False
+
+            # Filtered metric: only count events the detector did NOT flag as
+            # priced-in. This measures language scoring on its actual usable
+            # subset (the events it CAN predict).
+            if priced_in.get("category") != "priced_in":
+                direction_evaluated_filtered += 1
+                if predicted_direction == actual_direction:
+                    direction_correct_filtered += 1
 
             # Surprise detection: hawkish_surprise / extreme_dovish events should
             # produce a strong score (|score| > 20)
@@ -393,7 +492,9 @@ def run_backtest(use_tier2: bool = False, max_events: Optional[int] = None) -> D
             "tier2_score": round(tier2_score, 2) if tier2_score is not None else None,
             "tier2_dimensions": tier2_dimensions,
             "final_score": round(final_score, 2),
+            "raw_predicted_direction": raw_predicted_direction,
             "predicted_direction": predicted_direction,
+            "priced_in_detector": priced_in,
             "key_phrases_count": len(key_phrases),
             "key_phrases_sample": key_phrases[:5],
             "dxy_reaction": dxy,
@@ -411,6 +512,10 @@ def run_backtest(use_tier2: bool = False, max_events: Optional[int] = None) -> D
     direction_accuracy = (
         direction_correct / direction_evaluated if direction_evaluated > 0 else None
     )
+    direction_accuracy_filtered = (
+        direction_correct_filtered / direction_evaluated_filtered
+        if direction_evaluated_filtered > 0 else None
+    )
     surprise_rate = (
         surprise_detected / surprise_total if surprise_total > 0 else None
     )
@@ -424,9 +529,18 @@ def run_backtest(use_tier2: bool = False, max_events: Optional[int] = None) -> D
         "total_events": len(events),
         "events_processed": len([r for r in results if r["status"] == "ok"]),
         "metrics": {
+            # Headline accuracy across all events (with priced-in filter applied)
             "direction_accuracy": round(direction_accuracy, 3) if direction_accuracy is not None else None,
             "direction_correct": direction_correct,
             "direction_evaluated": direction_evaluated,
+            # Filtered: only events the priced-in detector did NOT flag.
+            # This is the realistic ceiling for language scoring on its usable subset.
+            "direction_accuracy_filtered": round(direction_accuracy_filtered, 3) if direction_accuracy_filtered is not None else None,
+            "direction_correct_filtered": direction_correct_filtered,
+            "direction_evaluated_filtered": direction_evaluated_filtered,
+            # Detector statistics
+            "detector_flagged_priced_in": detector_flagged_priced_in,
+            "detector_flagged_surprise": detector_flagged_surprise,
             "surprise_detection_rate": round(surprise_rate, 3) if surprise_rate is not None else None,
             "surprise_detected": surprise_detected,
             "surprise_total": surprise_total,

@@ -327,14 +327,23 @@ function BacktestSection({
       ) : (
         <>
           {/* Aggregate metrics */}
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <div className="rounded border border-zinc-800 bg-zinc-800/40 px-3 py-2">
-              <div className="text-zinc-500 text-xs uppercase tracking-wider">Direction Accuracy</div>
+              <div className="text-zinc-500 text-xs uppercase tracking-wider">Direction (all)</div>
               <div className={`text-2xl font-bold font-mono ${accuracyColor(m.direction_accuracy)}`}>
                 {formatPct(m.direction_accuracy)}
               </div>
               <div className="text-zinc-600 text-xs">
                 {m.direction_correct}/{m.direction_evaluated} events
+              </div>
+            </div>
+            <div className="rounded border border-blue-900/40 bg-blue-950/20 px-3 py-2">
+              <div className="text-blue-300 text-xs uppercase tracking-wider">Direction (filtered)</div>
+              <div className={`text-2xl font-bold font-mono ${accuracyColor(m.direction_accuracy_filtered)}`}>
+                {formatPct(m.direction_accuracy_filtered)}
+              </div>
+              <div className="text-zinc-600 text-xs">
+                {m.direction_correct_filtered}/{m.direction_evaluated_filtered} non priced-in
               </div>
             </div>
             <div className="rounded border border-zinc-800 bg-zinc-800/40 px-3 py-2">
@@ -347,12 +356,12 @@ function BacktestSection({
               </div>
             </div>
             <div className="rounded border border-zinc-800 bg-zinc-800/40 px-3 py-2">
-              <div className="text-zinc-500 text-xs uppercase tracking-wider">Priced-In Accuracy</div>
-              <div className={`text-2xl font-bold font-mono ${accuracyColor(m.priced_in_accuracy)}`}>
-                {formatPct(m.priced_in_accuracy)}
+              <div className="text-zinc-500 text-xs uppercase tracking-wider">Priced-In Detector</div>
+              <div className="text-2xl font-bold font-mono text-zinc-300">
+                {m.detector_flagged_priced_in ?? 0}
               </div>
               <div className="text-zinc-600 text-xs">
-                {m.priced_in_correct}/{m.priced_in_total} priced-in
+                of {m.direction_evaluated} flagged
               </div>
             </div>
           </div>
@@ -367,6 +376,7 @@ function BacktestSection({
                   <th className="text-right pb-2 pr-2">T1</th>
                   <th className="text-right pb-2 pr-2">T2</th>
                   <th className="text-right pb-2 pr-2">Final</th>
+                  <th className="text-left pb-2 pr-2" title="2Y yield priced-in detector: priced_in / partial / surprise">PI</th>
                   <th className="text-left pb-2 pr-2">Pred</th>
                   <th className="text-right pb-2 pr-1" title="DXY move at +30 minutes (statement only)">+30m</th>
                   <th className="text-right pb-2 pr-2" title="DXY move at +90 minutes (statement + press conference)">+90m</th>
@@ -401,9 +411,33 @@ function BacktestSection({
                       <td className={`py-1.5 pr-2 text-right font-mono font-bold ${ev.final_score && ev.final_score > 0 ? "text-red-300" : ev.final_score && ev.final_score < 0 ? "text-blue-300" : "text-zinc-400"}`}>
                         {ev.final_score !== undefined && ev.final_score !== null ? ev.final_score.toFixed(0) : "—"}
                       </td>
+                      <td className="py-1.5 pr-2">
+                        {(() => {
+                          const pi = ev.priced_in_detector;
+                          if (!pi || !pi.available) return <span className="text-zinc-700">—</span>;
+                          const cat = pi.category;
+                          const cls =
+                            cat === "priced_in" ? "bg-orange-950/60 text-orange-300 border-orange-800" :
+                            cat === "surprise" ? "bg-green-950/60 text-green-300 border-green-800" :
+                            cat === "partial" ? "bg-zinc-800/60 text-zinc-400 border-zinc-700" :
+                            "bg-zinc-900 text-zinc-600 border-zinc-800";
+                          const label =
+                            cat === "priced_in" ? "PI" :
+                            cat === "surprise" ? "SURP" :
+                            cat === "partial" ? "PART" : "—";
+                          return (
+                            <span className={`px-1 py-0.5 rounded border text-[9px] font-bold ${cls}`} title={`ratio=${pi.ratio} pre=${pi.pre_move_bps}bp post=${pi.post_move_bps}bp`}>
+                              {label}
+                            </span>
+                          );
+                        })()}
+                      </td>
                       <td className="py-1.5 pr-2 text-zinc-400">
                         {ev.predicted_direction === "USD_bullish" ? "↑ B" :
                          ev.predicted_direction === "USD_bearish" ? "↓ B" : "→ N"}
+                        {ev.raw_predicted_direction && ev.raw_predicted_direction !== ev.predicted_direction && (
+                          <span className="text-orange-500 text-[9px] ml-1" title="Detector overrode the language prediction">*</span>
+                        )}
                       </td>
                       <td className="py-1.5 pr-1 text-right font-mono">{fmtPct(pct30)}</td>
                       <td className="py-1.5 pr-2 text-right font-mono">{fmtPct(pct90)}</td>
@@ -426,13 +460,14 @@ function BacktestSection({
           {/* Calibration insights */}
           <div className="mt-4 text-xs text-zinc-500 space-y-1.5 leading-relaxed">
             <div className="font-semibold text-zinc-400">Calibration Insights:</div>
-            <div>• <span className="text-zinc-400">Ground truth:</span> 90-minute DXY move from FOMC release time (Dukascopy 1-min data, 2017-2026). Captures statement + Powell&rsquo;s press conference reaction.</div>
-            <div>• <span className="text-zinc-400">+30m vs +90m:</span> Compare the two columns. When they disagree, the dovish/hawkish signal lived in Powell&rsquo;s verbal Q&amp;A, not the written statement (e.g., 2023-01-31).</div>
-            {m.surprise_detection_rate !== null && m.surprise_detection_rate !== undefined && m.surprise_detection_rate >= 0.6 && (
-              <div>• <span className="text-green-400">Surprise detection working.</span> Strong divergent events are being flagged with |score| &gt; 20.</div>
-            )}
+            <div>• <span className="text-zinc-400">Ground truth:</span> 90-minute DXY move from FOMC release time (Dukascopy 1-min data, 2017-2026).</div>
+            <div>• <span className="text-blue-300">PI column (priced-in detector):</span> compares 2Y yield move 30 days BEFORE the meeting vs 5 days AFTER. <span className="text-orange-300">PI</span> = priced in (ratio &gt; 0.70, language signal overridden to neutral). <span className="text-green-300">SURP</span> = real surprise (ratio &lt; 0.40). <span className="text-zinc-400">PART</span> = mixed.</div>
+            <div>• <span className="text-zinc-400">Direction (filtered):</span> the realistic ceiling — accuracy on events the priced-in detector did NOT flag. Use this to judge whether language scoring is improving on its actual usable subset.</div>
+            <div>• <span className="text-orange-400">Asterisk (*)</span> next to a prediction means the priced-in detector overrode the raw language prediction.</div>
             {events.length > 0 && (
-              <div>• <span className="text-zinc-400">Remaining errors</span> mostly fall into &ldquo;less dovish than expected&rdquo; cases (2019-07-31, 2024-09-18) or recession-fear reversals (2022 hikes). These require integrating market expectations data — fundamental limit of language-only scoring.</div>
+              <div className="pt-1 mt-1 border-t border-zinc-800/60 text-zinc-500">
+                <span className="text-zinc-400">Honest conclusion from this 10-event set:</span> language scoring (T1, T2, or both) hits a structural ceiling near 20-30% direction accuracy because most FOMC outcomes are priced in before the meeting, and the remaining surprises live in Powell&rsquo;s press conference Q&amp;A rather than the prepared statement. The detector&rsquo;s job is not to boost accuracy directly — it&rsquo;s to <em>filter out</em> the events where language scoring shouldn&rsquo;t even be applied, leaving a more honest read of the system.
+              </div>
             )}
           </div>
 
@@ -675,6 +710,19 @@ export default function FedSentimentPageContent() {
         />
       )}
 
+      {/* FSM Methodology Note — backtest showed language scoring has structural ceiling */}
+      <div className="rounded-lg border border-blue-900/40 bg-blue-950/20 px-4 py-3 text-xs">
+        <div className="font-semibold text-blue-300 mb-1">How to read this page</div>
+        <div className="text-zinc-400 leading-relaxed">
+          FSM is a <span className="text-blue-300">context signal</span>, not a directional predictor.
+          Backtests show language scoring alone can&apos;t reliably predict USD direction (~20-30% on 10 events)
+          because most FOMC outcomes are priced in before the meeting. The most actionable fields below are{" "}
+          <span className="text-zinc-200 font-medium">Divergence Category</span> (Fed vs market expectations) and{" "}
+          <span className="text-zinc-200 font-medium">Pre-FOMC Window</span> — the V3 pipeline already uses these
+          to gate signal generation.
+        </div>
+      </div>
+
       {statusMsg && (
         <div className="text-xs text-zinc-400 bg-zinc-900 border border-zinc-700 rounded px-3 py-2">
           {statusMsg}
@@ -689,47 +737,55 @@ export default function FedSentimentPageContent() {
       {/* Top row: Gauge + Signal Card + Market Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
-        {/* Composite Gauge */}
-        <div className={`rounded-lg border p-5 flex flex-col items-center gap-3 ${scoreBg(comp?.composite_score ?? null)}`}>
-          <div className="text-zinc-400 text-xs font-semibold uppercase tracking-wider">Composite Score</div>
-          <CompositeGauge score={comp?.composite_score ?? null} />
-          <div className="text-zinc-400 text-xs text-center">
-            Regime: <span className="text-zinc-200 font-medium">{regimeLabel(comp?.fed_regime ?? null)}</span>
+        {/* Divergence Category Card — the lead actionable signal */}
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 flex flex-col gap-3">
+          <div className="text-zinc-400 text-xs font-semibold uppercase tracking-wider">
+            Divergence Category
+            <span className="ml-2 text-[10px] text-blue-400 font-normal normal-case">★ primary signal</span>
           </div>
-          {comp?.is_stale && (
-            <span className="text-yellow-500 text-xs">⚠ Stale data</span>
-          )}
-        </div>
-
-        {/* Trading Signal Card */}
-        <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 flex flex-col gap-4">
-          <div className="text-zinc-400 text-xs font-semibold uppercase tracking-wider">Trading Signal</div>
           {noData ? (
             <div className="text-zinc-600 text-sm">No signal — insufficient data</div>
           ) : (
             <>
-              <div className={`text-sm leading-relaxed font-medium ${directionColor(comp?.signal_direction ?? null)}`}>
-                {comp?.trading_signal}
+              <div className={`text-base font-bold ${
+                comp?.divergence_category?.includes("hawkish") ? "text-red-300" :
+                comp?.divergence_category?.includes("dovish") ? "text-blue-300" : "text-zinc-300"
+              }`}>
+                {comp?.divergence_category?.replace(/_/g, " ").toUpperCase() ?? "ALIGNED"}
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={`px-2 py-0.5 rounded text-xs font-semibold uppercase ${convictionBadge(comp?.signal_conviction ?? null)}`}>
-                  {comp?.signal_conviction ?? "low"} conviction
-                </span>
-                <span className={`text-sm font-semibold ${directionColor(comp?.signal_direction ?? null)}`}>
-                  {comp?.signal_direction === "USD_bullish" ? "↑ USD Bullish"
-                    : comp?.signal_direction === "USD_bearish" ? "↓ USD Bearish"
-                    : "→ Neutral"}
-                </span>
+              <div className="text-xs text-zinc-400 leading-relaxed">
+                {comp?.divergence_category === "hawkish_surprise" && "Fed language is more hawkish than market expectations — potential USD upside catalyst."}
+                {comp?.divergence_category === "dovish_surprise" && "Fed language is more dovish than market expectations — potential USD downside catalyst."}
+                {comp?.divergence_category === "hawkish_priced_in" && "Fed is hawkish but markets already price it. Limited fresh upside."}
+                {comp?.divergence_category === "dovish_priced_in" && "Fed is dovish but markets already price it. Limited fresh downside."}
+                {(!comp?.divergence_category || comp?.divergence_category === "aligned") && "Fed language and market expectations are aligned. No fresh catalyst."}
               </div>
-              <div className="text-xs text-zinc-500">
-                Divergence: <span className={scoreColor(comp?.divergence_score ?? null)}>
+              <div className="text-xs text-zinc-500 mt-1">
+                Score: <span className={scoreColor(comp?.divergence_score ?? null)}>
                   {comp?.divergence_score !== null ? `${(comp?.divergence_score ?? 0) > 0 ? "+" : ""}${comp?.divergence_score?.toFixed(1)}` : "—"}
                 </span>
-                <span className="ml-2 text-zinc-600">
-                  ({comp?.divergence_category?.replace(/_/g, " ") ?? "—"})
-                </span>
+                <span className="ml-3">Z-score: <span className="text-zinc-300 font-mono">{comp?.divergence_zscore?.toFixed(1) ?? "—"}</span></span>
+              </div>
+              <div className="mt-2 pt-2 border-t border-zinc-800 text-xs text-zinc-500">
+                Regime: <span className="text-zinc-300 font-medium">{regimeLabel(comp?.fed_regime ?? null)}</span>
               </div>
             </>
+          )}
+        </div>
+
+        {/* Composite Gauge — context only, demoted */}
+        <div className={`rounded-lg border p-5 flex flex-col items-center gap-2 ${scoreBg(comp?.composite_score ?? null)}`}>
+          <div className="text-zinc-400 text-xs font-semibold uppercase tracking-wider">
+            Composite Score
+            <span className="ml-2 text-[10px] text-zinc-500 font-normal normal-case">context only</span>
+          </div>
+          <CompositeGauge score={comp?.composite_score ?? null} />
+          <div className="text-zinc-500 text-[11px] text-center leading-snug">
+            Language NLP + market expectations.<br/>
+            <span className="text-zinc-600">Not used as a directional predictor — see divergence category.</span>
+          </div>
+          {comp?.is_stale && (
+            <span className="text-yellow-500 text-xs">⚠ Stale data</span>
           )}
         </div>
 
