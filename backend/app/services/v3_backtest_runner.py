@@ -300,8 +300,8 @@ def _generate_dates(start_date: str, end_date: str, frequency: str) -> List[date
 
     freq_lower = frequency.lower()
 
-    if freq_lower in ("weekly", "biweekly"):
-        delta_days = 7 if freq_lower == "weekly" else 14
+    if freq_lower in ("weekly", "biweekly", "triweekly"):
+        delta_days = {"weekly": 7, "biweekly": 14, "triweekly": 21}[freq_lower]
         # Move start to next Wednesday so all signal days land mid-week
         days_to_wed = (2 - start.weekday()) % 7
         cur = start + timedelta(days=days_to_wed)
